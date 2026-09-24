@@ -52,15 +52,28 @@ docs/        RESULTS.md — cross-language benchmark matrix
 Each implementation repo vendors a copy of `spec/` + `vectors/`. Its golden
 runner replays every `*.cmd.jsonl` and asserts the emitted stream matches the
 canonical `*.evt.jsonl` byte-for-byte — in every index mode the vector
-declares. `scripts/verify.sh` runs all three suites when the impl repos are
+declares. `scripts/verify.sh` runs the impl suites when the impl repos are
 checked out as siblings (`../matcher-rust` etc).
 
 ## Benchmarks
 
 `tools/vectorgen` emits seeded `<prefix>.setup.cmd.jsonl` +
 `<prefix>.run.cmd.jsonl` corpora — same seed, byte-identical workloads in
-every language. Protocol and reporting format: `spec/BENCH.md`. Measured
-results: `docs/RESULTS.md`.
+every language. Protocol and reporting format: `spec/BENCH.md`.
+
+Peak throughput per implementation (single-threaded, per `spec/BENCH.md`):
+
+| Implementation | Peak ops/s | Workload |
+|---|---:|---|
+| [matcher-cpp](https://github.com/abhijitkrm/matcher-cpp) | ~23M | w5 depth=1k |
+| [matcher-rust](https://github.com/abhijitkrm/matcher-rust) | ~19M | w5 depth=1k |
+| [matcher-java](https://github.com/abhijitkrm/matcher-java) | ~11M | w2 sweep |
+| [matcher-go](https://github.com/abhijitkrm/matcher-go) | ~9M | w5 depth=1k |
+| [matcher-ts](https://github.com/abhijitkrm/matcher-ts) | ~5M | w5 depth=1k |
+
+Peak is the cache-resident ceiling; deep books are memory-latency-bound
+(~4M ops/s at depth=1M for the native impls). Full workload matrix, latency
+percentiles, and environment details: [`docs/RESULTS.md`](docs/RESULTS.md).
 
 ## Contributing
 
