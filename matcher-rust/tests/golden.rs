@@ -88,6 +88,8 @@ fn run(cmd_path: &Path, kind: IndexKind) -> (Vec<String>, String) {
         let v: serde_json::Value = serde_json::from_str(line).unwrap();
         book.apply(parse_cmd(&v), &mut sink);
     }
+    #[cfg(debug_assertions)]
+    book.check_invariants();
     (sink.lines, header.index)
 }
 

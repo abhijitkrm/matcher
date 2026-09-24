@@ -184,8 +184,8 @@ impl LadderIndex {
                 let mut i = from;
                 while i < self.levels.len() {
                     let w = i / 64;
-                    let mut word = self.bits[w] & (u64::MAX << (i % 64));
-                    while word != 0 {
+                    let word = self.bits[w] & (u64::MAX << (i % 64));
+                    if word != 0 {
                         return (w * 64 + word.trailing_zeros() as usize) as u32;
                     }
                     i = w * 64 + 64;
@@ -196,8 +196,8 @@ impl LadderIndex {
                 let mut i = from as i64;
                 while i >= 0 {
                     let w = (i as usize) / 64;
-                    let mut word = self.bits[w] & (u64::MAX >> (63 - (i % 64) as u32));
-                    while word != 0 {
+                    let word = self.bits[w] & (u64::MAX >> (63 - (i % 64) as u32));
+                    if word != 0 {
                         return (w * 64 + (63 - word.leading_zeros()) as usize) as u32;
                     }
                     i = (w as i64) * 64 - 1;
@@ -239,6 +239,16 @@ impl LadderIndex {
             i = w * 64 + 64;
         }
         sum
+    }
+
+    /// Raw level access for invariant checks (debug builds / tests).
+    pub fn levels(&self) -> &[Level] {
+        &self.levels
+    }
+
+    /// Is `i` marked occupied in the bitmap?
+    pub fn occupied(&self, i: usize) -> bool {
+        self.bits[i / 64] & (1u64 << (i % 64)) != 0
     }
 
     pub fn depth(&self, n: usize) -> Vec<(Price, Qty)> {

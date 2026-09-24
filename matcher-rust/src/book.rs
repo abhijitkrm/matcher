@@ -445,4 +445,51 @@ impl OrderBook {
     pub fn seq(&self) -> u64 {
         self.seq
     }
+
+    /// Debug invariant check — level totals match order sums, intrusive links
+    /// are consistent, bitmap ⇔ non-empty levels, live pool count == map size.
+    /// O(book size); for tests and debugging, never the hot path.
+    #[cfg(debug_assertions)]
+    pub fn check_invariants(&self) {
+        assert_eq!(
+            self.pool.live(),
+            self.map.len(),
+            "pool live count != map size"
+        );
+        assert!(self.pool.live() <= self.pool.cap(), "live exceeds capacity");
+        for side in [Side::Bid, Side::Ask] {
+            let index = match side {
+                Side::Bid => &self.bids,
+                Side::Ask => &self.asks,
+            };
+            if let PriceIndex::Ladder(lad) = index {
+                let mut seen = 0usize;
+                for (i, lvl) in lad.levels().iter().enumerate() {
+                    assert_eq!(
+                        lad.occupied(i),
+                        !lvl.is_empty(),
+                        "bit/level mismatch at index {i}"
+                    );
+                    if lvl.is_empty() {
+                        continue;
+                    }
+                    seen += 1;
+                    // walk chain: links consistent, qty sum == level total
+                    let mut n = lvl.head;
+                    let mut prev = NIL;
+                    let mut sum = 0u64;
+                    while n != NIL {
+                        let o = self.pool.get(n);
+                        assert_eq!(o.prev, prev, "broken prev link");
+                        prev = n;
+                        sum += o.qty;
+                        n = o.next;
+                    }
+                    assert_eq!(prev, lvl.tail, "broken tail link");
+                    assert_eq!(sum, lvl.total, "level total drift");
+                }
+                assert_eq!(seen, index.len(), "level count drift");
+            }
+        }
+    }
 }
