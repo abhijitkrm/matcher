@@ -44,7 +44,8 @@ spec/        SPEC.md (semantics contract) · SCHEMA.md (vector format) · BENCH.
 vectors/     golden corpus — *.cmd.jsonl in, canonical *.evt.jsonl out
 tools/       vectorgen — deterministic benchmark-workload generator
 scripts/     verify.sh — runs every impl repo's golden tests
-docs/        RESULTS.md — cross-language benchmark matrix
+docs/        RESULTS.md — cross-language benchmark matrix · SCALING.md —
+             threading + symbol-partitioning model
 ```
 
 ## How parity works
