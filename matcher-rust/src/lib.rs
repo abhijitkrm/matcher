@@ -33,6 +33,9 @@ mod pool;
 mod sink;
 mod types;
 
+#[doc(hidden)]
+pub mod jsonflat;
+
 pub use book::{OrderBook, OrderInfo};
 pub use engine::Engine;
 pub use sink::{LinesSink, NullSink, Sink, VecSink};

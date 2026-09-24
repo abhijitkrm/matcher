@@ -14,7 +14,10 @@ pub struct OrderMap {
 
 #[inline]
 fn mix(k: u64) -> u64 {
-    k.wrapping_mul(0x9E37_79B9_7F4A_7C15)
+    // Fibonacci multiply then fold high entropy down — sequential order ids
+    // have near-zero entropy in the low product bits, which would cluster.
+    let h = k.wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    h ^ (h >> 32)
 }
 
 impl OrderMap {

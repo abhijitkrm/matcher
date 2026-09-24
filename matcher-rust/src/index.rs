@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 
 use crate::level::Level;
+use crate::pool::NIL;
 use crate::types::{Price, Qty, Side};
 
 pub enum PriceIndex {
@@ -103,12 +104,15 @@ impl PriceIndex {
 }
 
 /// Direct-indexed ladder + occupancy bitmap for one book side.
+/// Keeps a top-of-book cursor: `best` is always the best occupied index,
+/// rescanned only when the best level empties (O(1) amortized).
 pub struct LadderIndex {
     base: Price, // array index = price - base
     side: Side,
     levels: Vec<Level>,
     bits: Vec<u64>,
     count: u32, // non-empty levels
+    best: u32,  // index of best occupied level; NIL when empty
 }
 
 impl LadderIndex {
@@ -120,6 +124,7 @@ impl LadderIndex {
             levels: vec![Level::default(); span],
             bits: vec![0u64; span.div_ceil(64)],
             count: 0,
+            best: NIL,
         }
     }
 
@@ -135,7 +140,8 @@ impl LadderIndex {
     }
 
     /// Level for insert: sets the occupancy bit (idempotent — caller is about
-    /// to make the level non-empty).
+    /// to make the level non-empty) and improves the cursor if this price
+    /// beats it.
     #[inline]
     pub fn level_insert(&mut self, price: Price) -> &mut Level {
         let i = self.idx(price);
@@ -143,41 +149,71 @@ impl LadderIndex {
         if lvl.is_empty() {
             self.bits[i / 64] |= 1u64 << (i % 64);
             self.count += 1;
+            let better = self.best == NIL
+                || match self.side {
+                    Side::Bid => i as u32 > self.best,
+                    Side::Ask => (i as u32) < self.best,
+                };
+            if better {
+                self.best = i as u32;
+            }
         }
         lvl
     }
 
+    /// Clear bookkeeping for an emptied level; rescan the cursor only if it
+    /// pointed at this level.
     #[inline]
     pub fn unlink_level(&mut self, price: Price) {
         let i = self.idx(price);
-        if self.levels[i].is_empty() {
-            self.bits[i / 64] &= !(1u64 << (i % 64));
-            self.count -= 1;
+        if !self.levels[i].is_empty() {
+            return;
+        }
+        self.bits[i / 64] &= !(1u64 << (i % 64));
+        self.count -= 1;
+        if i as u32 == self.best {
+            self.best = self.rescan(i);
         }
     }
 
-    /// Best occupied price: highest set bit for bids, lowest for asks.
-    pub fn best_price(&self) -> Option<Price> {
+    /// Next occupied index moving inward from `from` (inclusive). For asks:
+    /// higher prices; for bids: lower prices.
+    fn rescan(&self, from: usize) -> u32 {
         match self.side {
             Side::Ask => {
-                for (w, &word) in self.bits.iter().enumerate() {
-                    if word != 0 {
-                        return Some(self.base + (w * 64 + word.trailing_zeros() as usize) as Price);
+                let mut i = from;
+                while i < self.levels.len() {
+                    let w = i / 64;
+                    let mut word = self.bits[w] & (u64::MAX << (i % 64));
+                    while word != 0 {
+                        return (w * 64 + word.trailing_zeros() as usize) as u32;
                     }
+                    i = w * 64 + 64;
                 }
-                None
+                NIL
             }
             Side::Bid => {
-                for w in (0..self.bits.len()).rev() {
-                    let word = self.bits[w];
-                    if word != 0 {
-                        return Some(
-                            self.base + (w * 64 + (63 - word.leading_zeros()) as usize) as Price,
-                        );
+                let mut i = from as i64;
+                while i >= 0 {
+                    let w = (i as usize) / 64;
+                    let mut word = self.bits[w] & (u64::MAX >> (63 - (i % 64) as u32));
+                    while word != 0 {
+                        return (w * 64 + (63 - word.leading_zeros()) as usize) as u32;
                     }
+                    i = (w as i64) * 64 - 1;
                 }
-                None
+                NIL
             }
+        }
+    }
+
+    /// Best occupied price (cursor read — O(1)).
+    #[inline]
+    pub fn best_price(&self) -> Option<Price> {
+        if self.best == NIL {
+            None
+        } else {
+            Some(self.base + self.best as Price)
         }
     }
 
