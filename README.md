@@ -18,6 +18,8 @@ their own repos and prove byte-identical behavior against `vectors/`.
 | [matcher-rust](https://github.com/abhijitkrm/matcher-rust) | Rust | `matcher` on crates.io |
 | [matcher-go](https://github.com/abhijitkrm/matcher-go) | Go | `github.com/abhijitkrm/matcher-go` |
 | [matcher-cpp](https://github.com/abhijitkrm/matcher-cpp) | C++20 | header-only CMake lib |
+| [matcher-ts](https://github.com/abhijitkrm/matcher-ts) | TypeScript | `@abhijitkrm/matcher` on npm |
+| [matcher-java](https://github.com/abhijitkrm/matcher-java) | Java 17+ | `io.github.abhijitkrm:matcher` |
 
 ## The design
 
