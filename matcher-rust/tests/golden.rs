@@ -156,12 +156,20 @@ fn golden_vectors() {
             .unwrap_or_else(|_| panic!("missing {evt_path:?} (run REGEN=1 cargo test)"));
         let exp: Vec<&str> = evt_text.lines().skip(1).collect();
         checked += 1;
-        if exp != expected_lines.iter().map(|s| s.as_str()).collect::<Vec<_>>() {
+        if exp
+            != expected_lines
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+        {
             eprintln!("FAIL {name}: golden mismatch");
             let n = exp.len().max(expected_lines.len());
             for i in 0..n {
                 let e = exp.get(i).copied().unwrap_or("<none>");
-                let a = expected_lines.get(i).map(|s| s.as_str()).unwrap_or("<none>");
+                let a = expected_lines
+                    .get(i)
+                    .map(|s| s.as_str())
+                    .unwrap_or("<none>");
                 if e != a {
                     eprintln!("  line {}:\n    expected {e}\n    actual   {a}", i + 2);
                 }

@@ -222,11 +222,29 @@ impl CloseReason {
 /// An event emitted by a book. Paired with a per-book `seq` at emit time.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Event {
-    Accepted { order_id: OrderId, leaves_qty: Qty },
-    Rejected { order_id: OrderId, reason: RejectReason },
-    Trade { maker: OrderId, taker: OrderId, price: Price, qty: Qty },
-    Closed { order_id: OrderId, reason: CloseReason },
-    Replaced { order_id: OrderId, price: Price, qty: Qty },
+    Accepted {
+        order_id: OrderId,
+        leaves_qty: Qty,
+    },
+    Rejected {
+        order_id: OrderId,
+        reason: RejectReason,
+    },
+    Trade {
+        maker: OrderId,
+        taker: OrderId,
+        price: Price,
+        qty: Qty,
+    },
+    Closed {
+        order_id: OrderId,
+        reason: CloseReason,
+    },
+    Replaced {
+        order_id: OrderId,
+        price: Price,
+        qty: Qty,
+    },
 }
 
 impl Event {
@@ -234,7 +252,10 @@ impl Event {
     /// without the trailing newline.
     pub fn write_canonical(seq: u64, ev: &Event, out: &mut String) {
         match *ev {
-            Event::Accepted { order_id, leaves_qty } => {
+            Event::Accepted {
+                order_id,
+                leaves_qty,
+            } => {
                 let _ = fmt::Write::write_fmt(
                     out,
                     format_args!(
@@ -254,7 +275,12 @@ impl Event {
                     ),
                 );
             }
-            Event::Trade { maker, taker, price, qty } => {
+            Event::Trade {
+                maker,
+                taker,
+                price,
+                qty,
+            } => {
                 let _ = fmt::Write::write_fmt(
                     out,
                     format_args!(
@@ -274,7 +300,11 @@ impl Event {
                     ),
                 );
             }
-            Event::Replaced { order_id, price, qty } => {
+            Event::Replaced {
+                order_id,
+                price,
+                qty,
+            } => {
                 let _ = fmt::Write::write_fmt(
                     out,
                     format_args!(
@@ -300,9 +330,7 @@ impl Event {
             Event::Accepted {
                 order_id,
                 leaves_qty,
-            } => order_id
-                .wrapping_mul(0x9E37_79B1)
-                .wrapping_add(leaves_qty),
+            } => order_id.wrapping_mul(0x9E37_79B1).wrapping_add(leaves_qty),
             Event::Rejected { order_id, reason } => order_id
                 .wrapping_mul(0x9E37_79B2)
                 .wrapping_add(reason as u64),

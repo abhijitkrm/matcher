@@ -9,13 +9,11 @@ pub fn get_str<'a>(line: &'a str, key: &str) -> Option<&'a str> {
     let pat = format!("\"{key}\":");
     let start = line.find(&pat)? + pat.len();
     let rest = &line[start..];
-    if rest.starts_with('"') {
-        let end = rest[1..].find('"')? + 1;
-        Some(&rest[1..end])
+    if let Some(quoted) = rest.strip_prefix('"') {
+        let end = quoted.find('"')?;
+        Some(&quoted[..end])
     } else {
-        let end = rest
-            .find(|c: char| c == ',' || c == '}')
-            .unwrap_or(rest.len());
+        let end = rest.find([',', '}']).unwrap_or(rest.len());
         Some(rest[..end].trim())
     }
 }

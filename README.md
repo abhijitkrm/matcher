@@ -1,5 +1,10 @@
 # matcher
 
+[![ci](https://github.com/abhijitkrm/matcher/actions/workflows/ci.yml/badge.svg)](https://github.com/abhijitkrm/matcher/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/matcher.svg)](https://crates.io/crates/matcher)
+[![go.dev](https://pkg.go.dev/badge/github.com/abhijitkrm/matcher/matcher-go.svg)](https://pkg.go.dev/github.com/abhijitkrm/matcher/matcher-go)
+[![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+
 A small, deterministic, exchange-grade order-matching core — implemented as
 idiomatic, zero-dependency packages in multiple languages, with one shared
 semantics spec and a golden test corpus proving byte-identical behavior.
@@ -43,7 +48,26 @@ scripts/verify.sh  run all golden tests across implementations
 docs/RESULTS.md    benchmark results matrix
 ```
 
-## Quick start
+## Use it
+
+```toml
+# Rust — Cargo.toml
+matcher = "0.1"
+```
+
+```go
+// Go
+import "github.com/abhijitkrm/matcher/matcher-go/matcher"
+// go get github.com/abhijitkrm/matcher/matcher-go@latest
+```
+
+```cmake
+# C++ — header-only, C++20
+add_subdirectory(matcher-cpp)          # or install + find_package
+target_link_libraries(your_target PRIVATE matcher)
+```
+
+## Quick start (dev)
 
 ```bash
 # Rust

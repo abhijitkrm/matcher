@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+jobs:
+  rust:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - run: cargo fmt --check
+        working-directory: matcher-rust
+      - run: cargo clippy --all-targets -- -D warnings
+        working-directory: matcher-rust
+      - run: cargo test --release
+        working-directory: matcher-rust
+
+  go:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.21"
+      - run: go vet ./...
+        working-directory: matcher-go
+      - run: go test ./...
+        working-directory: matcher-go
+
+  cpp:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+        working-directory: matcher-cpp
+      - run: cmake --build build -j
+        working-directory: matcher-cpp
+      - run: ctest --test-dir build --output-on-failure
+        working-directory: matcher-cpp
+
+  vectorgen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo run --release -- --workload w2 --n 5000 --setup-n 1000 --out /tmp/ci-w2
+        working-directory: tools/vectorgen
+      - run: test -s /tmp/ci-w2.cmd.jsonl && head -1 /tmp/ci-w2.cmd.jsonl | grep -q matcher-vector

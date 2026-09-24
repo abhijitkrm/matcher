@@ -10,11 +10,12 @@ package main
 import (
 	"bufio"
 	"fmt"
-	"matcher-go/matcher"
 	"os"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/abhijitkrm/matcher/matcher-go/matcher"
 )
 
 func load(path string) (matcher.BookConfig, []matcher.Command) {

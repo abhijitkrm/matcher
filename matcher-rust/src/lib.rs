@@ -24,6 +24,8 @@
 //! assert!(book.order(2).is_none());
 //! ```
 
+#![forbid(unsafe_code)]
+
 mod book;
 mod engine;
 mod index;

@@ -62,7 +62,7 @@ impl PriceIndex {
         match self {
             PriceIndex::Ladder(l) => l.unlink_level(price),
             PriceIndex::Tree(t) => {
-                if t.map.get(&price).map_or(false, |l| l.is_empty()) {
+                if t.map.get(&price).is_some_and(|l| l.is_empty()) {
                     t.map.remove(&price);
                 }
             }
@@ -73,10 +73,7 @@ impl PriceIndex {
     pub fn sum_range(&self, lo: Price, hi: Price) -> Qty {
         match self {
             PriceIndex::Ladder(l) => l.sum_range(lo, hi),
-            PriceIndex::Tree(t) => t
-                .map
-                .range(lo..=hi)
-                .fold(0u64, |acc, (_, l)| acc + l.total),
+            PriceIndex::Tree(t) => t.map.range(lo..=hi).fold(0u64, |acc, (_, l)| acc + l.total),
         }
     }
 
@@ -219,7 +216,7 @@ impl LadderIndex {
 
     /// Sum totals over occupied levels in `[lo, hi]`.
     pub fn sum_range(&self, lo: Price, hi: Price) -> Qty {
-        let lo_i = self.idx(lo).max(0);
+        let lo_i = self.idx(lo);
         let hi_i = self.idx(hi).min(self.levels.len() - 1);
         if lo_i > hi_i {
             return 0;

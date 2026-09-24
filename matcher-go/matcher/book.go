@@ -293,11 +293,11 @@ type OrderInfo struct {
 	Qty     uint64
 }
 
-func (b *OrderBook) BestBid() (int64, bool)  { return b.bids.bestPrice() }
-func (b *OrderBook) BestAsk() (int64, bool)  { return b.asks.bestPrice() }
-func (b *OrderBook) OrderCount() int         { return b.pool.live }
-func (b *OrderBook) Seq() uint64             { return b.seq }
-func (b *OrderBook) LevelCount(s Side) int   { return b.ownIndex(s).len() }
+func (b *OrderBook) BestBid() (int64, bool) { return b.bids.bestPrice() }
+func (b *OrderBook) BestAsk() (int64, bool) { return b.asks.bestPrice() }
+func (b *OrderBook) OrderCount() int        { return b.pool.live }
+func (b *OrderBook) Seq() uint64            { return b.seq }
+func (b *OrderBook) LevelCount(s Side) int  { return b.ownIndex(s).len() }
 func (b *OrderBook) Depth(s Side, n int) []levelDepth {
 	return b.ownIndex(s).depth(n)
 }

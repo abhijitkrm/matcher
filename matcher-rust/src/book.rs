@@ -69,6 +69,7 @@ impl OrderBook {
 
     // ---- commands --------------------------------------------------------
 
+    #[allow(clippy::too_many_arguments)]
     fn new_order<S: Sink>(
         &mut self,
         order_id: OrderId,
@@ -99,10 +100,8 @@ impl OrderBook {
                         return self.reject(sink, order_id, RejectReason::PostOnlyWouldCross);
                     }
                 }
-                Tif::Fok => {
-                    if self.fillable(side, price) < qty {
-                        return self.reject(sink, order_id, RejectReason::FokCannotFill);
-                    }
+                Tif::Fok if self.fillable(side, price) < qty => {
+                    return self.reject(sink, order_id, RejectReason::FokCannotFill);
                 }
                 _ => {}
             }
@@ -193,7 +192,14 @@ impl OrderBook {
                 lvl.total -= old_qty - qty;
             }
             self.pool.get_mut(idx).qty = qty;
-            self.emit(sink, Event::Replaced { order_id, price, qty });
+            self.emit(
+                sink,
+                Event::Replaced {
+                    order_id,
+                    price,
+                    qty,
+                },
+            );
             return;
         }
 
@@ -267,8 +273,7 @@ impl OrderBook {
             Side::Ask => &mut self.bids,
         };
 
-        loop {
-            let Some(bp) = opp.best_price() else { break };
+        while let Some(bp) = opp.best_price() {
             if let Some(b) = bound {
                 let crosses = match side {
                     Side::Bid => bp <= b,
@@ -367,8 +372,8 @@ impl OrderBook {
     #[inline]
     fn would_cross(&self, side: Side, price: Price) -> bool {
         match side {
-            Side::Bid => self.asks.best_price().map_or(false, |bp| price >= bp),
-            Side::Ask => self.bids.best_price().map_or(false, |bp| price <= bp),
+            Side::Bid => self.asks.best_price().is_some_and(|bp| price >= bp),
+            Side::Ask => self.bids.best_price().is_some_and(|bp| price <= bp),
         }
     }
 

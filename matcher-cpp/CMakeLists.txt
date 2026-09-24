@@ -9,9 +9,13 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
+include(GNUInstallDirs)
+
 # Header-only library target.
 add_library(matcher INTERFACE)
-target_include_directories(matcher INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(matcher INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>)
 target_compile_features(matcher INTERFACE cxx_std_20)
 
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
@@ -29,3 +33,8 @@ target_link_libraries(matcherbench PRIVATE matcher)
 if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
   target_compile_options(matcherbench PRIVATE -O3 -march=native)
 endif()
+
+# Install: header-only lib — consumers get #include <matcher/matcher.hpp>.
+install(DIRECTORY include/matcher DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(TARGETS matcher EXPORT matcher-targets)
+install(EXPORT matcher-targets NAMESPACE matcher:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/matcher)
