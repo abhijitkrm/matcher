@@ -1,102 +1,69 @@
 # matcher
 
 [![ci](https://github.com/abhijitkrm/matcher/actions/workflows/ci.yml/badge.svg)](https://github.com/abhijitkrm/matcher/actions/workflows/ci.yml)
-[![crates.io](https://img.shields.io/crates/v/matcher.svg)](https://crates.io/crates/matcher)
-[![go.dev](https://pkg.go.dev/badge/github.com/abhijitkrm/matcher/matcher-go.svg)](https://pkg.go.dev/github.com/abhijitkrm/matcher/matcher-go)
 [![license](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 
-A small, deterministic, exchange-grade order-matching core — implemented as
-idiomatic, zero-dependency packages in multiple languages, with one shared
-semantics spec and a golden test corpus proving byte-identical behavior.
+**The specification repo for the matcher project** — a small, deterministic,
+exchange-grade order-matching core shipped as idiomatic, zero-dependency
+packages in multiple languages.
 
-The design mirrors how real exchanges structure their matchers (CME Globex,
-Nasdaq Genium INET): a single-writer limit order book per symbol, commands in,
-a monotonically sequenced event stream out. Everything else — sessions,
-protocols, persistence, HA — lives outside, behind the event-sink seam.
+This repo holds the shared contract: semantics spec, golden test vectors,
+workload generator, and benchmark methodology. The implementations live in
+their own repos and prove byte-identical behavior against `vectors/`.
 
 ## Implementations
 
-| Package | Language | Status |
+| Repo | Language | Package |
 |---|---|---|
-| [`matcher-rust`](matcher-rust/) | Rust crate | reference implementation |
-| [`matcher-go`](matcher-go/) | Go module | port |
-| [`matcher-cpp`](matcher-cpp/) | C++ CMake lib | port |
+| [matcher-rust](https://github.com/abhijitkrm/matcher-rust) | Rust | `matcher` on crates.io |
+| [matcher-go](https://github.com/abhijitkrm/matcher-go) | Go | `github.com/abhijitkrm/matcher-go` |
+| [matcher-cpp](https://github.com/abhijitkrm/matcher-cpp) | C++20 | header-only CMake lib |
 
-## Features (v1)
+## The design
 
-- Order types: Limit, Market
-- Commands: New, Cancel, Replace (modify)
-- Time-in-force: GTC, IOC, FOK, Post-Only
-- Matching: FIFO price-time priority
-- Multi-symbol: thin `Engine` router over per-symbol books
+Mirrors how real exchanges structure their matchers (CME Globex, Nasdaq
+Genium INET): a single-writer limit order book per symbol, commands in, a
+monotonically sequenced event stream out. Everything else — sessions,
+protocols, persistence, HA — lives outside, behind the event-sink seam.
+
+- Order types: Limit, Market · Commands: New, Cancel, Replace
+- TIF: GTC, IOC, FOK, Post-Only · FIFO price-time priority
 - Zero-allocation steady state: pooled orders, intrusive FIFO levels,
-  direct-indexed bitmap price ladder (O(1) best price) with ordered-map fallback
-- Deterministic: every command produces a sequenced event stream; no wall-clock
-  time, no randomness
-
-Explicit non-goals: networking, FIX, persistence, fees, risk checks, self-trade
-prevention. See `spec/SPEC.md`.
+  direct-indexed bitmap price ladder (O(1) best price) + ordered-map fallback
+- Deterministic: no wall-clock, no randomness; every command yields a
+  sequenced event stream
+- Explicit non-goals: networking, FIX, persistence, fees, risk checks — see
+  `spec/SPEC.md`
 
 ## Layout
 
 ```
-spec/        language-agnostic contract (SPEC, SCHEMA, BENCH)
-vectors/     golden test corpus (JSONL command/event streams)
-matcher-rust/  matcher-go/  matcher-cpp/   implementations
-tools/vectorgen/  deterministic corpus generator
-scripts/verify.sh  run all golden tests across implementations
-docs/RESULTS.md    benchmark results matrix
+spec/        SPEC.md (semantics contract) · SCHEMA.md (vector format) · BENCH.md
+vectors/     golden corpus — *.cmd.jsonl in, canonical *.evt.jsonl out
+tools/       vectorgen — deterministic benchmark-workload generator
+scripts/     verify.sh — runs every impl repo's golden tests
+docs/        RESULTS.md — cross-language benchmark matrix
 ```
 
-## Use it
+## How parity works
 
-```toml
-# Rust — Cargo.toml
-matcher = "0.1"
-```
-
-```go
-// Go
-import "github.com/abhijitkrm/matcher/matcher-go/matcher"
-// go get github.com/abhijitkrm/matcher/matcher-go@latest
-```
-
-```cmake
-# C++ — header-only, C++20
-add_subdirectory(matcher-cpp)          # or install + find_package
-target_link_libraries(your_target PRIVATE matcher)
-```
-
-## Quick start (dev)
-
-```bash
-# Rust
-cd matcher-rust && cargo test
-
-# Go
-cd matcher-go && go test ./...
-
-# C++
-cd matcher-cpp && cmake -B build && cmake --build build && ctest --test-dir build
-
-# Everything
-./scripts/verify.sh
-```
-
-## Semantics in one paragraph
-
-Submit a `new` limit order: it matches the opposite side from best price inward
-(same price = arrival order), emitting one `trade` event per fill at the resting
-order's price. The remainder rests (GTC → `accepted`), dies (IOC/Market →
-`closed{expired}`), or never happens (FOK insufficient → `rejected`, Post-Only
-would cross → `rejected`). `cancel` removes a live order; `replace` modifies it —
-quantity decrease keeps time priority, price change or quantity increase loses
-it and re-enters as an aggressive order. Full contract: `spec/SPEC.md`.
+Each implementation repo vendors a copy of `spec/` + `vectors/`. Its golden
+runner replays every `*.cmd.jsonl` and asserts the emitted stream matches the
+canonical `*.evt.jsonl` byte-for-byte — in every index mode the vector
+declares. `scripts/verify.sh` runs all three suites when the impl repos are
+checked out as siblings (`../matcher-rust` etc).
 
 ## Benchmarks
 
-Shared workloads W1–W5 (`spec/BENCH.md`) generated by `tools/vectorgen`,
-measured identically in every language. Results: `docs/RESULTS.md`.
+`tools/vectorgen` emits seeded `<prefix>.setup.cmd.jsonl` +
+`<prefix>.run.cmd.jsonl` corpora — same seed, byte-identical workloads in
+every language. Protocol and reporting format: `spec/BENCH.md`. Measured
+results: `docs/RESULTS.md`.
+
+## Contributing
+
+Semantics changes start here: `spec/SPEC.md`, a new golden vector, then the
+change lands in every impl repo. See `CONTRIBUTING.md`.
 
 ## License
 
