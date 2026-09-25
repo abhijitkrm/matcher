@@ -40,10 +40,16 @@ protocols, persistence, HA — lives outside, behind the event-sink seam.
 ## Layout
 
 ```
-spec/        SPEC.md (semantics contract) · SCHEMA.md (vector format) · BENCH.md
+spec/        SPEC.md (semantics contract) · SCHEMA.md (vector format) ·
+             BENCH.md · JOURNAL.md (persistence/recovery contract)
 vectors/     golden corpus — *.cmd.jsonl in, canonical *.evt.jsonl out
-tools/       vectorgen — deterministic benchmark-workload generator
-scripts/     verify.sh — runs every impl repo's golden tests
+tools/       vectorgen — deterministic benchmark-workload generator ·
+             fuzzgen — adversarial + exhaustive stream generator
+scripts/     verify.sh — runs every impl repo's golden tests ·
+             diffuzz.sh — seeded differential fuzzing ·
+             exhaustive.sh — bounded exhaustive parity proof ·
+             e2e.sh — end-to-end journal/snapshot/recovery loop ·
+             snapdiff.sh — cross-language snapshot parity
 docs/        RESULTS.md — cross-language benchmark matrix · SCALING.md —
              threading + symbol-partitioning model
 ```
@@ -63,6 +69,22 @@ replayed through every implementation's `matcherfuzz` harness and the
 canonical event streams must be byte-identical — the strongest parity check
 available. `SAN=1` additionally runs matcher-cpp under ASan+UBSan, and the
 Rust harness asserts book invariants after every command.
+
+`scripts/exhaustive.sh` escalates fuzzing into **bounded exhaustive proof**:
+`fuzzgen --exhaustive D` emits *every* length-D sequence over an 8-command
+alphabet covering the semantic space (crossing both directions, FIFO ties,
+IOC/FOK/PostOnly, duplicate/unknown ids, cancel, replace) alternating two
+symbols — every impl runs every sequence, all byte-identical. Within the
+bounded domain this is a proof of equivalence on the real code, not sampling.
+
+## Persistence & recovery (spec/JOURNAL.md)
+
+Determinism makes persistence recording, not magic: commands journal before
+apply, events journal at the sink, snapshots capture resting state as flat
+`{"rec":...}` lines. Every impl ships `matcherrun`/`matcherrecover`
+(`snapdump` for snapshots) and `scripts/e2e.sh` proves the full loop per impl
+— **plus a 5×5 cross-impl matrix: a snapshot written by any implementation
+restores byte-identically in every other**.
 
 ## Benchmarks
 

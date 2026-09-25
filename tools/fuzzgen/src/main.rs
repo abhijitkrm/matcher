@@ -45,6 +45,8 @@ fn main() {
     let mut pmin = 0i64;
     let mut pmax = 1_000i64;
 
+    let mut exhaustive: Option<usize> = None;
+    let mut out_dir: Option<String> = None;
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         let v = args.next().unwrap_or_else(|| panic!("{a} needs a value"));
@@ -55,8 +57,20 @@ fn main() {
             "--ids" => ids = v.parse().unwrap(),
             "--pmin" => pmin = v.parse().unwrap(),
             "--pmax" => pmax = v.parse().unwrap(),
+            "--exhaustive" => exhaustive = Some(v.parse().unwrap()),
+            "--out" => out_dir = Some(v),
             _ => panic!("unknown arg {a}"),
         }
+    }
+
+    // Exhaustive enumeration mode: emit EVERY sequence of `depth` commands
+    // over a small but semantically complete alphabet (crossing, same-price
+    // FIFO, IOC/FOK/PostOnly, known/unknown ids, replace) — one file per
+    // sequence in --out dir. Bounded-domain proof, not sampling.
+    if let Some(depth) = exhaustive {
+        let out_dir = out_dir.expect("--exhaustive requires --out <dir>");
+        write_exhaustive(depth, &out_dir);
+        return;
     }
 
     let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15).wrapping_add(1));
@@ -121,4 +135,54 @@ fn main() {
         }
     }
     stdout.lock().write_all(out.as_bytes()).unwrap();
+}
+
+/// The exhaustive alphabet: 8 commands covering the semantic space —
+/// resting both sides, crossing both directions, IOC, FOK (fill + reject),
+/// PostOnly (rest + would-cross), duplicate/unknown ids, cancel, replace.
+/// Ids are fixed so sequences hit duplicate/unknown/cancel-live branches.
+const ALPHABET: &[&str] = &[
+    "{\"cmd\":\"new\",\"order_id\":1,\"side\":\"bid\",\"otype\":\"limit\",\"price\":50,\"qty\":5,\"tif\":\"gtc\"}",
+    "{\"cmd\":\"new\",\"order_id\":2,\"side\":\"ask\",\"otype\":\"limit\",\"price\":51,\"qty\":5,\"tif\":\"gtc\"}",
+    "{\"cmd\":\"new\",\"order_id\":3,\"side\":\"bid\",\"otype\":\"limit\",\"price\":51,\"qty\":5,\"tif\":\"gtc\"}",
+    "{\"cmd\":\"new\",\"order_id\":4,\"side\":\"ask\",\"otype\":\"limit\",\"price\":50,\"qty\":3,\"tif\":\"ioc\"}",
+    "{\"cmd\":\"new\",\"order_id\":5,\"side\":\"ask\",\"otype\":\"limit\",\"price\":50,\"qty\":99,\"tif\":\"fok\"}",
+    "{\"cmd\":\"new\",\"order_id\":6,\"side\":\"bid\",\"otype\":\"limit\",\"price\":51,\"qty\":4,\"tif\":\"post_only\"}",
+    "{\"cmd\":\"cancel\",\"order_id\":1}",
+    "{\"cmd\":\"replace\",\"order_id\":2,\"price\":50,\"qty\":7}",
+];
+
+/// Write every ALPHABET^depth sequence as seq_NNNNN.cmd.jsonl in `dir`.
+/// Symbol alternates 1,2,1,2… so routing and per-book seq are also covered.
+fn write_exhaustive(depth: usize, dir: &str) {
+    std::fs::create_dir_all(dir).unwrap();
+    let base = ALPHABET.len();
+    let total = base.pow(depth as u32);
+    let mut digits = vec![0usize; depth];
+    for f in 0..total {
+        let mut path = String::with_capacity(256);
+        path.push_str(&format!(
+            "{{\"format\":\"matcher-vector/1\",\"name\":\"exh_{f}\",\"engine\":true,\"pmin\":0,\"pmax\":100,\"max_orders\":64,\"index\":\"both\"}}\n"
+        ));
+        for (pos, &a) in digits.iter().enumerate() {
+            let cmd = ALPHABET[a];
+            // inject the symbol field after {"cmd":"x"
+            let sym = (pos % 2) + 1;
+            let brace = cmd.find(',').unwrap();
+            path.push_str(&cmd[..brace]);
+            path.push_str(&format!(",\"symbol\":{sym}"));
+            path.push_str(&cmd[brace..]);
+            path.push('\n');
+        }
+        std::fs::write(format!("{dir}/seq_{f:05}.cmd.jsonl"), path).unwrap();
+        // odometer++
+        for d in digits.iter_mut().rev() {
+            *d += 1;
+            if *d < base {
+                break;
+            }
+            *d = 0;
+        }
+    }
+    eprintln!("exhaustive: {total} sequences (depth {depth}, alphabet {base}) → {dir}");
 }
