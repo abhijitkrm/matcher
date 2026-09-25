@@ -56,6 +56,14 @@ canonical `*.evt.jsonl` byte-for-byte — in every index mode the vector
 declares. `scripts/verify.sh` runs the impl suites when the impl repos are
 checked out as siblings (`../matcher-rust` etc).
 
+Beyond curated vectors, `tools/fuzzgen` + `scripts/diffuzz.sh` do
+**differential fuzzing**: seeded adversarial command streams (crossing orders,
+duplicate/unknown ids, qty=0, out-of-range prices, 8 interleaved symbols) are
+replayed through every implementation's `matcherfuzz` harness and the
+canonical event streams must be byte-identical — the strongest parity check
+available. `SAN=1` additionally runs matcher-cpp under ASan+UBSan, and the
+Rust harness asserts book invariants after every command.
+
 ## Benchmarks
 
 `tools/vectorgen` emits seeded `<prefix>.setup.cmd.jsonl` +
