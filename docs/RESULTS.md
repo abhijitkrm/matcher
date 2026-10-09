@@ -56,6 +56,29 @@ Latencies in nanoseconds. `ops/s` = measured ops per second (wall time).
 | w5 depth=1k | ts | 300000 | 5578511 | 179 | 42 | 208 | 625 | 1458 | 2145709 |
 | w5 depth=1k | java | 300000 | 3939533 | 254 | 42 | 250 | 750 | 2541 | 35536667 |
 
+## Ladder rescan fix @ 2026-10-09
+
+W3 run for 1M ops instead of 100k (`vectorgen --workload w3 --n 1000000`)
+cancels faster than it adds, so the book drains to a handful of orders.
+Each time a side's last level emptied, the top-of-book rescan walked the
+occupancy bitmap word by word to the end of the 1M-tick ladder (about
+7,800 words) before returning "empty"; a profile put 98% of the time
+there. Every port now keeps a summary bitmap (one bit per non-empty
+bitmap word) and sets the cursor straight to empty when the side's count
+reaches zero. Output is unchanged (golden vectors and bench checksums);
+each port gained a randomized test of the cursor against a sorted set.
+
+| impl | W3-drain before | W3-drain after | W3 (100k) / W2 / W4 |
+|---|---|---|---|
+| rust (8657dc7) | 0.60M | 13.0M | unchanged (A/B) |
+| cpp (55091ea) | 0.64M | 15.3M | unchanged (A/B) |
+| go (81542be) | 0.36M | 7.2M | unchanged (A/B) |
+| java (20e563b) | ~1.2M | ~5M | unchanged (A/B) |
+| ts (223341e) | 0.30M | 4.8M | unchanged (A/B) |
+
+Apple M1, ops/s, single book. The default W3 (100k ops) never drained the
+book, which is why the earlier tables did not show this.
+
 ## Reading it
 
 - **C++ ≈ Rust** (within noise): 10–23M ops/s, p50 ≈ 41–42ns (measurement floor).
