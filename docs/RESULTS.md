@@ -79,6 +79,34 @@ each port gained a randomized test of the cursor against a sorted set.
 Apple M1, ops/s, single book. The default W3 (100k ops) never drained the
 book, which is why the earlier tables did not show this.
 
+## 10M-op sweep @ 2026-10-10
+
+Every workload at 10M measured ops (`vectorgen --n 10000000`), plus W3
+and W5 behind a 1M-order setup, so books stay deep instead of draining.
+One run per cell, Apple M1, single book; ops/s, then p50 / p99 / max in ns.
+Port commits: rust 8657dc7, cpp 55091ea, go 81542be, java 20e563b,
+ts e7986ae.
+
+| workload | rust | cpp | go | java | ts |
+|---|---|---|---|---|---|
+| W1 build (10M adds) | 7.5M · 84/292/1.4ms | 5.9M · 125/292/132ms | 3.7M · 166/334/136ms | 8.3M · 42/250/1.6ms | 3.5M · 208/459/130ms |
+| W2 sweep | 13.6M · 42/167/0.3ms | 13.8M · 42/208/0.7ms | 11.4M · 41/250/0.2ms | 15.1M · 42/208/1.0ms | 4.5M · 125/459/197ms |
+| W3 churn (drains) | 13.0M · 42/209/0.3ms | 14.1M · 42/209/0.1ms | 7.2M · 83/292/0.7ms | 10.8M · 42/250/1.2ms | 4.6M · 125/417/207ms |
+| W3 churn, 1M-order setup | 7.4M · 42/541/3.1ms | 7.8M · 42/500/2.2ms | 4.7M · 166/542/1.6ms | 4.9M · 42/667/22ms | 3.4M · 167/833/1.8ms |
+| W4 mixed | 10.4M · 42/416/1.0ms | 10.9M · 42/417/0.8ms | 5.4M · 125/417/1.1ms | 7.9M · 42/625/3.2ms | 4.2M · 125/792/133ms |
+| W5 mix, 1M-order setup | 8.1M · 42/459/0.05ms | 7.3M · 83/584/9.9ms | 4.4M · 166/584/3.4ms | 6.1M · 42/583/334ms | 3.1M · 166/1167/193ms |
+
+- No workload collapses at 10M ops any more: before the ladder rescan fix,
+  drained W3 ran at 0.3–1.2M ops/s.
+- A deep book (1M live orders) costs roughly half the throughput in every
+  port. The book no longer fits in cache, the same memory-bound curve as W5
+  at smaller sizes.
+- Max-column spikes of 100–330 ms are one-off pauses in long runs: GC in
+  Go, TS and Java (W5's 334 ms), and first-touch page faults as W1 grows
+  the C++, Go and TS pools to 10M orders.
+- This sweep is what found matcher-ts's bench could not load a corpus over
+  ~512 MB (V8's maximum string length); fixed in matcher-ts e7986ae.
+
 ## Reading it
 
 - **C++ ≈ Rust** (within noise): 10–23M ops/s, p50 ≈ 41–42ns (measurement floor).
