@@ -1,6 +1,16 @@
 # Changelog
 
-## v0.1.0 — 2025-01-XX
+## v0.2.0 — 2026-10-10
+
+- `spec/JOURNAL.md`: command/event journal and snapshot format.
+- Differential fuzzing (`tools/fuzzgen`, `scripts/diffuzz.sh`), e2e
+  recovery loop, bounded exhaustive verification, snapshot diffs.
+- Vectors: engine (multi-symbol) vectors and `edge/042_dense_map_churn`,
+  which exposed an order-map deletion bug in matcher-rust and matcher-cpp.
+- `spec/BENCH.md`: W3-drain regression row (the ladder rescan bug).
+- docs/RESULTS.md: ladder fix before/after; 10M-op sweep of all five ports.
+
+## v0.1.0 — 2026-09-24
 
 Initial release.
 
