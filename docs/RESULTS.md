@@ -137,3 +137,34 @@ ts e7986ae.
   pools, 32-bit bitmap words); sorted-keys `Map` tree fallback.
 - **java**: same structures on flat `long[]`/`int[]` pools; `TreeMap` fallback;
   `@FunctionalInterface` sink. Numbers are JIT-warm.
+
+## cpp chunk layout + apply_batch @ 2026-10-27
+
+matcher-cpp Unreleased (inline 128-byte level chunks, tagged `OrderMap`,
+`apply_batch`) against v0.2.0 (e4806a4), same machine, same corpora from
+`bench/`, best of 3 reps, ops/s. "v0.2.0" and "latency" are the same
+protocol (one timed `apply()` per command); "throughput" is the new
+`apply_batch` mode, untimed per op. Not comparable with the other ports'
+rows: those have no batch path.
+
+| workload | v0.2.0 | new, latency | new, throughput | throughput + PGO |
+|---|---|---|---|---|
+| W1 build 1M | 14.1M | 19.1M | 37.2M | 37.4M |
+| W2 sweep | 16.7M | 19.4M | 25.5M | 25.5M |
+| W3 churn | 16.0M | 15.8M | 23.0M | 22.4M |
+| W4 mixed | 14.6M | 14.7M | 39.7M | 39.9M |
+| W5 1k live | 25.5M | 25.7M | **91.5M** | 89.9M |
+| W5 100k live | 11.9M | 15.2M | 23.2M | 23.4M |
+| W5 1M live | 4.5M | 5.3M | 13.1M | 13.1M |
+
+- The 80–90M ops/s figure is W5 at 1k live orders in throughput mode, where
+  the whole book is cache-resident. It does not hold for larger books:
+  23M at 100k live and 13M at 1M live.
+- In latency mode the layout alone helps W1 (+35%), W5 100k (+27%) and
+  W5 1M (+19%); W3 and W4 are flat. Most of the headline gain comes from
+  batching, which also removes the ~40 ns per-op timer.
+- PGO (clang `-fprofile-instr-use`, trained on all workloads) is within
+  noise on every workload; left optional, off by default.
+- Correctness: golden suite (including `apply_batch` vs `apply`), ladder,
+  regress and snapshot tests pass under ASan+UBSan; `diffuzz.sh` with
+  `SAN=1` is 5-way identical on seeds 1-8 (20k commands each).

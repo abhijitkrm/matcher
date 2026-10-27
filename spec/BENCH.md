@@ -1,4 +1,4 @@
-# BENCH — benchmark methodology v1
+# BENCH — benchmark methodology v2
 
 Goal: **comparable** latency/throughput numbers across implementations.
 Same workloads, same measurement protocol, same report format. Relative
@@ -47,6 +47,33 @@ Identical in every implementation:
 - Release builds only: Rust `lto="fat", codegen-units=1`; Go default `-O`
   (note `GOGC` variant); C++ `-O3 -flto -march=native` where supported.
 
+### 2.1 Modes (v2)
+
+v1 reported one number per workload, measured with two clock reads around
+every op. On macOS a clock read costs ~17–20 ns, so v1 "ops/s" mostly measured
+the timer (a ~25–50M ops/s ceiling regardless of the engine). v2 separates
+three questions; every harness supports `--mode latency|throughput|scale`:
+
+| Mode | Question | Protocol |
+|---|---|---|
+| `latency` (default) | How long does one command take? | §2 exactly as v1. Report the latency columns; its ops/s includes timer overhead and is **not** a throughput figure. |
+| `throughput` | How many commands/s can one core sustain on one book? | Fresh book, `prefault()`, setup untimed, then the whole `run` through the batch entry point (`apply_batch`) with one clock read before and after. One warmup rep, then R reps (default 5); report best and median ops/s and median ns/op. |
+| `scale` | How many commands/s can the machine sustain, shard-per-core? | N threads (default: all hardware threads). Each thread builds its own book on its own thread, prefaults it, replays setup untimed, waits at a barrier, then replays `run` as its own symbol partition (docs/SCALING.md: one writer per book, no shared state). Aggregate = N × ops / slowest thread's wall time. One warmup rep, then R reps; report best, median, and median per thread. |
+
+Rules common to `throughput` and `scale`:
+
+- The batch entry point must produce a byte-identical event stream to
+  calling `apply` per command (it may only reorder *prefetches*, never
+  effects). Harnesses check this in their golden suite.
+- `prefault()` commits all bounded storage before setup. Timed sections
+  never grow memory (no page faults, no GC-visible allocation).
+- Threads are pinned where the OS allows (`pthread_setaffinity_np` /
+  `taskset` on Linux); on macOS, which has no pinning, request
+  `QOS_CLASS_USER_INTERACTIVE` and report `scale` at the P-core count (an
+  M1 has 4 P + 4 E cores; E-cores add little and add variance).
+- Gateway / ingress transport is out of scope: shards read their corpus
+  from memory. Scale is the matching ceiling, not an end-to-end number.
+
 ## 3. Report format
 
 Append one block per run to `docs/RESULTS.md`:
@@ -57,10 +84,17 @@ env: Apple M1 / macOS 14 / rustc 1.98.1 (lto=fat,cgu=1)
 | workload | ops | ops/s | p50 | p90 | p99 | p99.9 | max |
 ```
 
+`throughput` / `scale` rows:
+
+```
+| workload | mode | threads | ops | best ops/s | median ops/s | median ns/op (throughput) or per-thread ops/s (scale) |
+```
+
 ## 4. Fairness rules
 
-- Identical data structures and algorithms in all implementations (pool,
-  intrusive levels, ladder index, open-addressed map).
+- Identical data structures and algorithms in all implementations, as
+  specified in `docs/LAYOUT.md` (chunked per-level order store, tagged
+  open-addressed map, ladder index, batched prefetch pipeline).
 - Pre-reserve capacities; no growth inside timed sections.
 - Go reports two rows: default GC and `GOGC=off` (documented, not hidden).
 - No claim of absolute HFT numbers on macOS: no core pinning, no kernel bypass.
