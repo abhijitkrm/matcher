@@ -608,24 +608,68 @@ W5 1M live
 - The older latency figures in the 10M-op sweep above (p50 ~41-42 ns) predate the
   chunk layout and inlining changes and sit on the same 41.7 ns timer floor.
 
+## Go and Java restructuring toward 100M @ 2026-10-28
+
+Goal: take Go and Java from 61-69M to 100M ops/s on W5 1k. Neither got there.
+
+**Go: 60.8M -> 67.8M (+11%) on W5 1k.** Kept (interleaved A/B, 3 rounds, M ops/s):
+
+| workload | before | after |
+|---|---:|---:|
+| W3 churn | 18.8 | 20.4 |
+| W4 mixed | 26.5 | 30.0 |
+| W5 1k live | 60.8 | 67.8 |
+| W5 100k live | 18.3 | 20.6 |
+| W5 1M live | 7.3 | 8.7 |
+
+- A `replace` is ~8 real calls in Go (`apply`, `levelMut`, `store.unlink`,
+  `unlinkLevel`, `cross`, `levelInsert`, `store.push`, the sink), and Go's ABI
+  has no callee-saved registers, so each call spills and reloads. `replace` now
+  has a ladder fast path with all of that written out by hand (+ a guard that
+  skips `cross` unless the opposite best is marketable); the tree index keeps
+  the generic code. The gain is concentrated on the larger books (W5 1M +16%,
+  100k +10%) and is small on W5 1k (+1-2%).
+- Building events directly in the book's reused `Event` instead of passing a
+  56-byte struct by value and copying it: W5 1k +7%, W2 +5%.
+- A PGO profile regenerated from the final code with long runs: +5% on W5 1k,
+  +4% on W4 (a profile from the older code and short runs had been neutral).
+
+Tried and dropped (Go): caching slice headers in locals and a fixed-length chunk
+slice (0%); a one-load order-map look-ahead on small books, with a call (-25%)
+and written inline (0 to -3% on W5 1k, +1-3% on W3/W4/100k); Go compiler flags
+(earlier section). Ceiling check: skipping the sink call entirely (throwaway
+build) only reaches 76M on W5 1k, so the interface dispatch is ~2 ns of the
+~15 ns per command; the other ~13 ns is the core itself, against ~8.7 ns for
+Rust. A `pprof -disasm` of `replace` puts the single hottest instruction at the
+order-map tag compare (~20% of the function), a dependent-load stall that the
+look-ahead did not remove.
+
+**Java: no change kept.** Ceilings and levers measured on W5 1k (baseline 67M):
+- skipping the sink call entirely: 71M (+6%), so the sink/event path is not
+  the issue;
+- HotSpot `-XX:CompileCommand=inline,...` on the top-level methods: +2% on
+  W5 1k, -10% on W3/W4; on the whole package it collapsed W5 1k to ~24M;
+- the order map on raw memory via `sun.misc.Unsafe` (no bounds checks or array
+  headers), same algorithm: W5 1k +3%, W4 +5%, W3 +12%, W5 100k +4%. Not adopted:
+  it would need Unsafe throughout, which newer JDKs are deprecating, and
+  converting every structure would plausibly reach the high 70s, not 100M.
+- Raw-memory `find` is also where a JFR profile concentrates (30% of timed
+  samples), but removing its bounds checks did not change that much, so that
+  cost is the first dependent memory access of each command, not the checks.
+
 ## Can Java, Go and TypeScript reach 100M? @ 2026-10-28
 
 Not shown to be impossible, but nothing tried gets close. Single core, W5 1k:
-Rust 115M and C++ 105M (after forced inlining), Java 69M, Go 61M, TypeScript 34M.
+Rust 115M and C++ 105M (after forced inlining), Go 67.8M, Java 69M, TypeScript 34M.
 
-- **Java (69M, needs +45%).** HotSpot can be told to inline specific methods
-  (`-XX:CompileCommand=inline,...`). Forcing the three top-level methods gave
-  +2% on W5 1k and -10% on W3/W4; forcing the whole package collapsed W5 1k to
-  ~24M (compile-node limits). The earlier look-ahead removal, struct-of-arrays
-  batch and JVM flags are exhausted too. The inliner is not the lever it was in
-  LLVM.
-- **Go (61M, needs +64%).** Go has no force-inline directive; PGO already lifts
-  the inline budget at hot call sites, and raising that budget, the new inliner,
-  hot-block alignment and bounds-check removal (`-gcflags=-B`, 0% change) were
-  all neutral. What is left is restructuring the source by hand (merging
-  functions) and register-allocation quality.
+- **Java (69M, needs +45%).** HotSpot cannot be made to inline like LLVM did
+  (see above); the look-ahead removal, struct-of-arrays batch, JVM flags and an
+  Unsafe map are exhausted or too small.
+- **Go (67.8M, needs +48%).** After the hand-expanded fast path, in-place
+  events and a fresh PGO profile Go is at 59% of Rust. The remaining cost is the
+  core's code generation, not calls, sink dispatch or bounds checks.
 - **TypeScript (34M, needs 3x).** V8 flags gave +8% (inlining budget); a
-  struct-of-arrays batch was slower. No lever found that is within 2x of the target.
-- Where they stand against Rust (single core): Java 60% and Go 53% on W5 1k,
-  roughly 65-75% on the mixed W4; TypeScript about 30% on both. Nothing here
-  predicts what restructuring the source would gain, so no target is claimed.
+  struct-of-arrays batch was slower. No lever found within 2x of the target.
+- Where they stand against Rust (single core): Java 60% and Go 59% on W5 1k,
+  roughly 65-70% on the mixed W4; TypeScript about 30% on both. Nothing here
+  predicts what further restructuring would gain, so no target is claimed.

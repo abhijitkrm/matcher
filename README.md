@@ -100,7 +100,7 @@ sink; `--mode throughput` and `--mode scale` per `spec/BENCH.md` v2):
 | [matcher-rust](https://github.com/abhijitkrm/matcher-rust) | 115.3M | 46.0M | 119.7M |
 | [matcher-cpp](https://github.com/abhijitkrm/matcher-cpp) | 105.5M | 43.9M | 119.7M |
 | [matcher-java](https://github.com/abhijitkrm/matcher-java) | 69.1M | 29.4M | 57.5M |
-| [matcher-go](https://github.com/abhijitkrm/matcher-go) | 60.9M | 26.0M | 61.1M |
+| [matcher-go](https://github.com/abhijitkrm/matcher-go) | 67.8M | 30.0M | 70.1M |
 | [matcher-ts](https://github.com/abhijitkrm/matcher-ts) | 34.3M | 15.7M | 40.5M* |
 
 \* 8-shard TS figure predates the V8 inlining-budget change.
