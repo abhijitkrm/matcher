@@ -545,14 +545,15 @@ is in the loop (first table). `max` is dominated by the machine (interrupts,
 scheduling) and, for Java and TypeScript, GC and JIT; it is reported but is not
 an engine property.
 
-Mean ns per command, from throughput mode (1e9 / ops-per-second):
+Mean ns per command, from throughput mode (1e9 / ops-per-second; Go after the
+restructuring below, the timed-percentile tables are from before it):
 
 | workload | Rust | C++ | Java | Go | TypeScript |
 |---|---:|---:|---:|---:|---:|
-| W5 1k live (cache-resident) | 8.7 | 9.5 | 14.5 | 16.4 | 29.2 |
-| W4 mixed (~100k standing) | 21.7 | 22.8 | 34.0 | 38.5 | 63.7 |
-| W5 100k live | 36.8 | 40.0 | 52.4 | 57.1 | 110 |
-| W5 1M live | 70.4 | 71.9 | 161 | 127 | 256 |
+| W5 1k live (cache-resident) | 8.7 | 9.5 | 14.5 | 14.7 | 29.2 |
+| W4 mixed (~100k standing) | 21.7 | 22.8 | 34.0 | 33.3 | 63.7 |
+| W5 100k live | 36.8 | 40.0 | 52.4 | 48.5 | 110 |
+| W5 1M live | 70.4 | 71.9 | 161 | 115 | 256 |
 
 Timed percentiles, ns (mean in this mode includes timer overhead):
 
