@@ -446,3 +446,28 @@ What this shows:
   harness's "room for at least `capacity`" contract, so it is not reported as a
   result and is not in the saved adapter. The Rust adapter has no custom
   transport and was not profiled; its 10.6M vs C++'s 12.25M is unexplained.
+
+## Single-core experiments that did not pay off @ 2026-10-28
+
+Tried while chasing 100M ops/s on one core (W5 1k live, C++/Rust 91-94M). None
+is in the code; recorded so they are not repeated. Quiet machine, interleaved
+A/B, three rounds each.
+
+- **Order-id block locality hash** (C++): home slot = hash(id >> 6) + (id & 63),
+  so 64 consecutive ids share a contiguous run and dense ids touch few cache
+  lines. Correct (golden suite passes), but much slower on churn-heavy
+  workloads: W1 32.4M -> 19.8M, W2 24.4M -> 13.9M, W3 21.5M -> 12.8M, W5 1M
+  12.6M -> 6.1M, no gain on W5 1k or W4. The 64-slot runs lengthen linear-probe
+  chains at 50% load.
+- **Right-sized `max_orders`** (the W5 1k corpus header asks for 201k, so the
+  map has ~512k slots for ~1,000 live orders): C++ 87.6M -> 91.1M (+4%), Java
+  +2-4% (inside its noise). The map footprint is not the main cost;
+  `OrderMap.find` looks hot in a Java profile (30-36% of timed samples) mostly
+  because it is the first dependent cache access of every command.
+- **Profiles are flat** in all five languages: no function above ~20% of the
+  timed work, so there is no single hot spot left to remove. Remaining cost is
+  spread over ~8 loads and 60-80 instructions per replace (~34 cycles).
+- Per-language flags/structure that also did not help are listed in each
+  port's section above (Go compiler flags, TS struct-of-arrays, Java look-ahead).
+- Single-core 100M ops/s was not reached: best is Rust 94.0M, C++ 91.5M on a
+  1k-order book (cache-resident), 40M on the mixed 100k-order workload.
