@@ -333,24 +333,25 @@ orders). Rust numbers; C++ is within 3%.
 
 | System (source) | Figure | What it measures | Hardware | Ours, same unit |
 |---|---|---|---|---|
-| LMAX Business Logic Processor ([Fowler](https://www.martinfowler.com/articles/lmax.html)) | 6M orders/s | one-thread matching + business logic, 2011 | 3 GHz Nehalem | 40.5M W4 (6.8x), 94M W5 1k |
+| LMAX Business Logic Processor ([Fowler](https://www.martinfowler.com/articles/lmax.html)) | 6M orders/s | one-thread matching + business logic, 2011 | 3 GHz Nehalem | 46.0M W4 (7.7x), 115M W5 1k |
 | LMAX Disruptor ([paper](https://www.scribd.com/document/365652228/Disruptor-1-0-pdf)) | >25M msgs/s, <50 ns | inter-thread ring-buffer transport, **not matching** | "moderate clock" CPUs, 2011 | not comparable |
-| exchange-core, Java + Disruptor ([README](https://github.com/Ahrvo-Trading-Systems/exchange-core)) | 5M ops/s per book | one order book, 3M-message mix | Xeon X5690 (2010) | 40.5M W4 (8.1x) |
+| exchange-core, Java + Disruptor ([README](https://github.com/Ahrvo-Trading-Systems/exchange-core)) | 5M ops/s per book | one order book, 3M-message mix | Xeon X5690 (2010) | 46.0M W4 (9.2x) |
 | Aeron Cluster, open source ([AWS](https://aws.amazon.com/blogs/industries/aeron-on-aws-2025-performance-benchmark-results)) | 250K msgs/s | replicated-log (consensus) rate, **not matching** | AWS | not comparable |
 | Aeron Cluster Premium (AWS) | 2M+ msgs/s at P99 130 us | same | AWS | not comparable |
 | Aeron IPC, .NET port ([sample](https://github.com/malat/Aeron.NET)) | ~14M msgs/s | 32-byte IPC messages, **not matching** | unstated | not comparable |
-| Flash One preprint ([arXiv 2606.01183](https://arxiv.org/html/2606.01183v1)) | 32M msgs/s per core (30.4M normal regime) | single-symbol matching, every command counted | Graviton4 core | 40.5M W4 (1.3x), 94M W5 1k (2.9x) |
+| Flash One preprint ([arXiv 2606.01183](https://arxiv.org/html/2606.01183v1)) | 32M msgs/s per core (30.4M normal regime) | single-symbol matching, every command counted | Graviton4 core | 46.0M W4 (1.4x), 115M W5 1k (3.6x) |
 | FlashOne, the preprint authors' proprietary engine, as listed in their [harness README](https://github.com/flash1-dev/matching-engine-benchmark) | 103.39M msgs/s worst-case of 5 scenarios, seed 23 (README; the paper text I read says ~32M, not reconciled) | their harness: ABI calls + 64-byte report stream over an SPSC queue to a drainer core | Graviton4 / Neoverse-V2 | see "Third-party harness" below: we reach 12.25M (default transport) to 20.2M (batched transport) worst case on this machine |
 | best public engine in that harness (lcv3, C++) | 9.25M msgs/s | same harness | Graviton4 | same |
 | same preprint, 10,000 symbols on one core | 9.9M msgs/s | multiplexed books, cache-bound | Graviton4 core | not comparable (we are single-book) |
 | same preprint, 96-core instance | 643.6M msgs/s | 10,000 symbols, one thread each | 96 Graviton4 cores | 109.8M on 8 M1 shards (not comparable) |
-| Liquibook, QuantCup winner (measured in the preprint) | 2.8M / 3.0M msgs/s | open-source matching engines | Graviton4 core | 40.5M W4 (15x / 14x) |
+| Liquibook, QuantCup winner (measured in the preprint) | 2.8M / 3.0M msgs/s | open-source matching engines | Graviton4 core | 46.0M W4 (17x / 16x) |
+| jaki729/High-Frequency-Trading-Matching-Engine (Go, 1 star; README claims 100K+ orders/s, 156K in a load test) ([repo](https://github.com/jaki729/High-Frequency-Trading-Matching-Engine)) | 84K ops/s on W5 1k (200K commands), 188 ops/s with a 100K-order book | its `engine` package driven directly by `tools/other-engines/jaki729`; heap of order pointers, `time.Now()` and a mutex per order, cancel rebuilds both heaps from the whole order map | Apple M1 | matcher-go 60.9M on W5 1k (~720x), 18.9M at 100K live orders (~100,000x) |
 | FPGA, UC Irvine student project ([page](https://projects.eng.uci.edu/projects/2025-2026/high-frequency-trading-project)) | 75M orders/s | self-reported, unaudited | FPGA | not comparable |
 | FPGA, Algo-Logic ([STAC 2013](https://stacresearch.com/system/files/resource/files/STAC%20Summit%20-%204%20November%202013%20-%20Algo-Logic.pdf)) | 150M searches/s | order-book lookups, not full matching | FPGA | not comparable |
 
 What this does and does not show:
 
-- **On a small cache-resident book our no-op-sink number (94M W5 1k) is
+- **On a small cache-resident book our no-op-sink number (115M W5 1k, Rust) is
   above every *published, reproducible* software figure we found** (LMAX 6M,
   exchange-core 5-6M, the best public engine in the harness 9.25M) and above
   the 32M in the paper text. It is **not** above the vendor's own claim:
@@ -358,7 +359,7 @@ What this does and does not show:
   proprietary, the figure is self-reported, and it is measured with report
   emission included, which our no-op sink excludes, so the two are not yet
   comparable. On the mixed workload with a ~100k-order standing book our lead
-  over the paper's 32M is 1.3x, not an order of magnitude. The preprint itself
+  over the paper's 32M is 1.4x, not an order of magnitude. The preprint itself
   shows the same dependence on cache residency (10,000 symbols per core: 31% of
   its single-symbol rate; a standing book about -10%), so book size and symbol
   count matter more than the ratio.
@@ -409,12 +410,16 @@ shim, so the columns compare engines, not transports.
 
 | scenario | lcv3 | matcher-cpp | matcher-rust | lcv3, ring | matcher-cpp, ring | matcher-rust, ring |
 |---|---:|---:|---:|---:|---:|---:|
-| static | 13.53 | 13.22 | 11.81 | 24.14 | 23.47 | 21.64 |
-| normal | 12.00 | 12.84 | 11.00 | 19.43 | 22.22 | 19.83 |
-| swing-25 | 11.99 | 12.57 | 10.61 | 19.33 | 21.38 | 18.98 |
-| swing-40 | 12.11 | 12.18 | 10.62 | 19.69 | 21.24 | 18.51 |
-| flash-crash | 12.17 | 12.28 | 10.72 | 20.38 | 20.62 | 17.76 |
-| **worst case** | **11.99** | **12.18** | **10.61** | **19.33** | **20.62** | **17.76** |
+| static | 13.84 | 13.58 | 12.95 | 24.57 | 24.52 | 24.12 |
+| normal | 11.90 | 13.09 | 12.04 | 19.62 | 22.83 | 22.40 |
+| swing-25 | 12.15 | 12.90 | 11.85 | 18.56 | 22.11 | 21.60 |
+| swing-40 | 12.16 | 12.65 | 11.68 | 19.88 | 22.07 | 21.08 |
+| flash-crash | 12.15 | 12.67 | 11.47 | 20.28 | 21.60 | 20.61 |
+| **worst case** | **11.90** | **12.65** | **11.47** | **18.56** | **21.60** | **20.61** |
+
+(Second full run, after the forced-inlining change to matcher-cpp and
+matcher-rust; lcv3 is unchanged. The first run, before it, had worst cases of
+lcv3 11.99 / 19.33, matcher-cpp 12.18 / 20.62, matcher-rust 10.61 / 17.76.)
 
 Their other two baselines, same machine (separate session): Liquibook 6.0 on
 `normal` and 0.035 on `static`; QuantCup 5.3 on `normal`, 0.16-0.51 on the three
@@ -423,16 +428,17 @@ trips the anti-cheat limit on time spent in `engine_query_*`).
 
 What this shows:
 
-- **matcher-cpp is level with the best public engine, not far ahead of it:**
-  worst case +1.6% on the default transport (12.18 vs 11.99) and +6.7% on the
-  shared ring (20.62 vs 19.33). lcv3 wins `static` in both modes; matcher-cpp
-  wins the other four by 0-14%. matcher-rust is 8-11% behind lcv3 on worst case
-  (cause not investigated). All three are conformant and 2-80x ahead of
-  Liquibook and QuantCup. The 94M no-op-sink figure above does not carry over:
-  this harness is dominated by report emission.
+- **matcher-cpp is modestly ahead of the best public engine, matcher-rust is
+  level with it:** worst case, matcher-cpp is +6% on the default transport
+  (12.65 vs 11.90) and +16% on the shared ring (21.60 vs 18.56); matcher-rust
+  is 4% behind on the default transport (11.47) and 11% ahead on the ring
+  (20.61). lcv3 wins `static` on the default transport; matcher-cpp wins the
+  other four by 4-17%. All three are conformant and 2-80x ahead of Liquibook
+  and QuantCup. The 115M no-op-sink figure above does not carry over: this
+  harness is dominated by report emission.
 - **The transport matters more than the engine.** Moving every engine from the
-  default transport to the batched ring adds 60-70% (lcv3 11.99 -> 19.33,
-  matcher-cpp 12.18 -> 20.62, matcher-rust 10.61 -> 17.76). With every report
+  default transport to the batched ring adds 56-80% (lcv3 11.90 -> 18.56,
+  matcher-cpp 12.65 -> 21.60, matcher-rust 11.47 -> 20.61). With every report
   discarded (a measurement-only build; its hash fails by construction)
   matcher-cpp runs at 40.7M msgs/s on `normal`, i.e. the matcher plus ABI call
   is ~25 ns/msg, in line with our 40M on W4. The rest is writing 64 bytes per
@@ -457,7 +463,7 @@ What this shows:
 
 ## Single-core experiments that did not pay off @ 2026-10-28
 
-Tried while chasing 100M ops/s on one core (W5 1k live, C++/Rust 91-94M). None
+Tried while chasing 100M ops/s on one core (W5 1k live, C++/Rust 91-94M at the time). None
 is in the code; recorded so they are not repeated. Quiet machine, interleaved
 A/B, three rounds each.
 
@@ -477,5 +483,150 @@ A/B, three rounds each.
   spread over ~8 loads and 60-80 instructions per replace (~34 cycles).
 - Per-language flags/structure that also did not help are listed in each
   port's section above (Go compiler flags, TS struct-of-arrays, Java look-ahead).
-- Single-core 100M ops/s was not reached: best is Rust 94.0M, C++ 91.5M on a
-  1k-order book (cache-resident), 40M on the mixed 100k-order workload.
+- Single-core 100M ops/s was not reached by any of the above. It was reached
+  afterwards by forcing the hot path inline in Rust and C++ (next section).
+
+## Forced inlining in Rust and C++ @ 2026-10-28
+
+Found while asking why the Rust harness adapter was 15-25% behind C++ with
+reports discarded (29M vs 39M msgs/s): callgrind showed ~350 instructions per
+message in the Rust adapter against ~246 in C++. LLVM kept `apply`,
+`unlink_level`, `cross`, `Store::push/unlink` and `OrderMap::remove` out of
+line even with `#[inline]` and fat LTO, so each message paid call, argument-copy
+and bounds-check overhead that g++ had already inlined away. In C++ the same
+helpers were implicitly inline but not forced. Both ports now mark the hot path
+`#[inline(always)]` / `[[gnu::always_inline]]`: `apply`, `new_order`, `cancel`,
+`replace`, `rest`, `cross`, `emit`, `reject` and the store, order-map and
+price-index operations.
+
+Interleaved A/B on a quiet machine (3-4 rounds, `--mode throughput`, best of 9),
+M ops/s, before -> after. The Rust column is the first step (the helpers and
+`apply`); the second step (the top-level functions) took W5 1k to 115M and W4 to
+45.5M:
+
+| workload | Rust | C++ |
+|---|---|---|
+| W2 sweep | 27.3 -> 30.4 (+11%) | 23.9 -> 25.6 (+7%) |
+| W3 churn | 22.9 -> 24.5 (+7%) | 21.2 -> 23.7 (+12%) |
+| W4 mixed | 39.8 -> 42.7 (+7%) | 38.5 -> 43.2 (+12%) |
+| W5 1k live | 92.6 -> 98.9 (+7%), 115 with the remaining helpers | 86.7 -> 101.2 (+17%) |
+| W5 100k live | 24.0 -> 25.8 (+7%) | 21.8 -> 24.9 (+14%) |
+| W5 1M live | 13.1 -> 13.9 (+6%) | 12.4 -> 14.0 (+13%) |
+
+Final numbers (best of 15): Rust W5 1k 115.3M (prefetch + native) and 115.8M
+(default build: safe code only, no native flags); C++ W5 1k 105.5M. W4 46.0M and
+43.9M; 8-shard W4 aggregate 119.7M for both. Rust gained more because it had
+more left out of line (apply, new_order, cancel, replace and rest as well as
+the helpers); the 115M figure comes from that second step (forcing the
+top-level functions on top of the helpers: 99M -> 115M on W5 1k).
+
+Checks: all tests, the 5-way differential fuzz (seeds 1-8) and the harness
+report-stream hash (VALID) pass for both. In the harness, instructions per
+message in the Rust adapter fell 350 -> 296 and its default-transport
+throughput rose ~9-10.8M -> ~11.1-11.5M (ring 18.2M -> 21.0M); C++ rose
+~12.3M -> ~13.2M (ring ~22M -> 22.5M).
+
+Not done: Java, Go and TypeScript cannot force inlining (the JIT / Go inliner
+decide); the Go compiler flags that raise the budget were measured neutral.
+
+## Latency @ 2026-10-28
+
+Per-command latency of the matching core: single-threaded replay of a corpus,
+no-op event sink, one timed `apply()` per command (`--mode latency`, BENCH.md
+section 2), ns, median of 3 runs per column. Apple M1, same builds as the
+throughput tables. No network, journal or report emission is included.
+
+**How to read it.** The M1's 24 MHz timer ticks every 41.7 ns, so every
+percentile is a multiple of that and a p50 of 0 or 41-42 means "within one
+tick", not a precise median. The *mean* in this mode also includes the cost of
+the two timer reads (~12 ns here), so it overstates the engine. The best central
+figure is therefore the mean per command from throughput mode, where no timer
+is in the loop (first table). `max` is dominated by the machine (interrupts,
+scheduling) and, for Java and TypeScript, GC and JIT; it is reported but is not
+an engine property.
+
+Mean ns per command, from throughput mode (1e9 / ops-per-second):
+
+| workload | Rust | C++ | Java | Go | TypeScript |
+|---|---:|---:|---:|---:|---:|
+| W5 1k live (cache-resident) | 8.7 | 9.5 | 14.5 | 16.4 | 29.2 |
+| W4 mixed (~100k standing) | 21.7 | 22.8 | 34.0 | 38.5 | 63.7 |
+| W5 100k live | 36.8 | 40.0 | 52.4 | 57.1 | 110 |
+| W5 1M live | 70.4 | 71.9 | 161 | 127 | 256 |
+
+Timed percentiles, ns (mean in this mode includes timer overhead):
+
+W5 1k live
+
+| | mean | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| Rust | 21 | 0 | 42 | 83 | 167 | 5,875 |
+| C++ | 20 | 0 | 42 | 83 | 708 | 4,833 |
+| Java | 48 | 0 | 42 | 166 | 583 | 30,208 |
+| Go | 28 | 41 | 42 | 125 | 209 | 12,375 |
+| TypeScript | 56 | 42 | 125 | 334 | 875 | 44,833 |
+
+W4 mixed
+
+| | mean | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| Rust | 38 | 41 | 84 | 209 | 417 | 26,250 |
+| C++ | 45 | 41 | 125 | 291 | 459 | 28,917 |
+| Java | 62 | 41 | 125 | 250 | 375 | 25,208 |
+| Go | 59 | 42 | 166 | 292 | 417 | 25,125 |
+| TypeScript | 91 | 42 | 250 | 500 | 875 | 53,542 |
+
+W5 100k live
+
+| | mean | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| Rust | 45 | 42 | 84 | 208 | 292 | 4,959 |
+| C++ | 56 | 42 | 125 | 250 | 375 | 16,125 |
+| Java | 103 | 42 | 167 | 375 | 1,250 | 41,375 |
+| Go | 76 | 42 | 167 | 292 | 417 | 14,292 |
+| TypeScript | 179 | 84 | 416 | 666 | 958 | 47,500 |
+
+W5 1M live
+
+| | mean | p50 | p90 | p99 | p99.9 | max |
+|---|---:|---:|---:|---:|---:|---:|
+| Rust | 183 | 208 | 333 | 459 | 584 | 22,834 |
+| C++ | 189 | 208 | 334 | 500 | 666 | 18,958 |
+| Java | 224 | 208 | 375 | 542 | 791 | 24,291 |
+| Go | 233 | 250 | 375 | 583 | 750 | 20,250 |
+| TypeScript | 325 | 292 | 542 | 792 | 1,166 | 58,250 |
+
+- On a small book the native ports process a command in under ~10 ns on average
+  (about 3 cache-hit loads and a few dozen instructions), with p99 of 2 timer
+  ticks (83 ns) and p99.9 under 1 us. Deep books are memory-bound: at 1M live
+  orders the median is a DRAM round trip (~200 ns) for every port.
+- The C++ p99.9 of 708 ns on W5 1k (Rust 167) did not repeat across runs; treat
+  single-digit-tick differences in the tail as noise.
+- Not measured: latency under load (open-loop, coordinated-omission-free) as in
+  the Flash One paper's tables, and any latency through a transport. In the
+  third-party harness the matcher-to-publisher hand-off dominates (about
+  45-80 ns per message vs ~9-23 ns for the matcher alone), see the harness section.
+- The older latency figures in the 10M-op sweep above (p50 ~41-42 ns) predate the
+  chunk layout and inlining changes and sit on the same 41.7 ns timer floor.
+
+## Can Java, Go and TypeScript reach 100M? @ 2026-10-28
+
+Not shown to be impossible, but nothing tried gets close. Single core, W5 1k:
+Rust 115M and C++ 105M (after forced inlining), Java 69M, Go 61M, TypeScript 34M.
+
+- **Java (69M, needs +45%).** HotSpot can be told to inline specific methods
+  (`-XX:CompileCommand=inline,...`). Forcing the three top-level methods gave
+  +2% on W5 1k and -10% on W3/W4; forcing the whole package collapsed W5 1k to
+  ~24M (compile-node limits). The earlier look-ahead removal, struct-of-arrays
+  batch and JVM flags are exhausted too. The inliner is not the lever it was in
+  LLVM.
+- **Go (61M, needs +64%).** Go has no force-inline directive; PGO already lifts
+  the inline budget at hot call sites, and raising that budget, the new inliner,
+  hot-block alignment and bounds-check removal (`-gcflags=-B`, 0% change) were
+  all neutral. What is left is restructuring the source by hand (merging
+  functions) and register-allocation quality.
+- **TypeScript (34M, needs 3x).** V8 flags gave +8% (inlining budget); a
+  struct-of-arrays batch was slower. No lever found that is within 2x of the target.
+- A rough ceiling: managed ports have landed at 55-75% of the native result on
+  every workload. At that ratio the native 115M implies roughly 65-85M for Java
+  and Go and 35-45M for TypeScript, which is where they are.

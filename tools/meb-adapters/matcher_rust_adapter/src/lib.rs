@@ -194,6 +194,12 @@ struct Ctx {
 impl Ctx {
     #[inline(always)]
     fn push(&self, r: &Report) {
+        #[cfg(feature = "discard")]
+        {
+            std::hint::black_box(r);
+            return;
+        }
+        #[allow(unreachable_code)]
         unsafe {
             #[cfg(feature = "ring")]
             while !ring::push_ring(self.sink, r) {}

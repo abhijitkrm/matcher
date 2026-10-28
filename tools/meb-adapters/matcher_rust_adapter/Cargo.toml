@@ -6,6 +6,8 @@ edition = "2021"
 [features]
 # Engine-supplied batched SPSC report transport (publishes every 32 reports).
 ring = []
+# Measurement only: drop every report to expose the matcher-side floor (hash FAILs).
+discard = []
 
 [lib]
 crate-type = ["cdylib"]
