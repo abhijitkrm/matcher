@@ -109,7 +109,9 @@ ahead of execution, reading possibly-stale state and never writing:
 Below the threshold it is a plain loop (prefetch probes cost more than they
 save on a resident book). Languages with no prefetch intrinsic (Java, TS,
 Go) may implement the pipeline with ordinary loads into a sink variable
-where that measurably helps, or skip it; report which.
+where that measurably helps, or skip it; report which. **Java skips it by
+default**: its plain loads stall retirement and halve W4 throughput
+(RESULTS.md, 2026-10-28).
 
 ## 5. Build
 

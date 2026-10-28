@@ -168,3 +168,75 @@ rows: those have no batch path.
 - Correctness: golden suite (including `apply_batch` vs `apply`), ladder,
   regress and snapshot tests pass under ASan+UBSan; `diffuzz.sh` with
   `SAN=1` is 5-way identical on seeds 1-8 (20k commands each).
+
+## rust chunk layout + apply_batch, and aggregate (shard-per-core) @ 2026-10-27
+
+matcher-rust (Unreleased: LAYOUT.md chunk store, tagged `OrderMap`,
+`apply_batch`) on the same machine and corpora as the cpp section above.
+Apple M1, 4 P + 4 E cores, best of 5 reps, ops/s. Single-core rows use
+`--mode throughput`; aggregate rows use `--mode scale` (BENCH.md §2.1:
+8 threads, each with its own book and symbol partition, no shared state;
+total = 8 × ops / slowest thread). Rust numbers are for
+`--features prefetch` with `-C target-cpu=native`; the default build
+(no `unsafe`, no prefetch) differs only on W4 (23.6M) and W5 1M (9.4M).
+
+| workload | rust, 1 core | rust, 8 shards | cpp, 1 core | cpp, 8 shards |
+|---|---|---|---|---|
+| W1 build 1M | 37.7M | 56.2M | 37.2M | 63.4M |
+| W2 sweep | 27.9M | 78.8M | 25.5M | 78.1M |
+| W3 churn | 23.2M | 65.7M | 23.0M | 68.4M |
+| W4 mixed | 40.5M | **109.8M** | 39.7M | **112.5M** |
+| W5 1k live | **94.0M** | 284.2M | **91.5M** | 304.5M |
+| W5 100k live | 24.6M | 75.3M | 23.2M | 68.2M |
+| W5 1M live | 13.3M | 39.2M | 13.1M | 40.1M |
+
+- **Single-core and aggregate are different claims.** Single-core is the
+  engine's speed on one book. Aggregate is what a shard-per-core
+  deployment sustains; it is not 8× because the 4 E-cores are slower
+  and the shared L2/memory bandwidth saturates (W5 1M: 13M per core
+  alone, 4.6M per thread at 8 threads).
+- The realistic mixed workload (W4) crosses 100M ops/s only as an
+  aggregate: 110M (rust) and 112M (cpp) on 8 shards. On one core it is
+  40M, limited by cache misses on a 100k-order book, not by the code.
+- Single-core above 100M was not reached: the best case (W5 1k live,
+  everything cache-resident) is 94M. Always-on prefetch for books under
+  64k live orders was tried and is far worse (62M), so the threshold in
+  LAYOUT.md §4 stays.
+- Noise: the machine runs other apps; individual runs of W5 1k vary
+  87–95M. Compare builds with interleaved A/B rounds, not single runs.
+
+## java chunk layout + applyBatch + aggregate @ 2026-10-28
+
+matcher-java (Unreleased: LAYOUT.md chunk store on flat `long[]`, tagged
+`OrderMap`, `applyBatch`) on the same machine and corpora. JDK 20, Apple M1,
+`-Xms2g -Xmx4g -XX:+UseParallelGC` (`-Xms4g -Xmx8g` for scale), best of 15
+reps (JIT-warm), ops/s. Throughput = `--mode throughput`; 8 shards =
+`--mode scale`.
+
+| workload | java, 1 core | java, 8 shards | rust, 1 core | cpp, 1 core |
+|---|---|---|---|---|
+| W1 build 1M | 27.5M | 47.4M | 37.7M | 37.2M |
+| W2 sweep | 24.0M | 78.7M | 27.9M | 25.5M |
+| W3 churn | 18.5M | 32.8M | 23.2M | 23.0M |
+| W4 mixed | 29.4M | 57.5M | 40.5M | 39.7M |
+| W5 1k live | 69.1M | 250.0M | 94.0M | 91.5M |
+| W5 100k live | 19.1M | 41.2M | 24.6M | 23.2M |
+| W5 1M live | 6.2M | 21.4M | 13.3M | 13.1M |
+
+- **The look-ahead pipeline is off by default in Java** (LAYOUT.md §4 allows
+  skipping it). Java has no non-blocking prefetch, so the pipeline's plain
+  loads stall retirement. With it on, W4 ran at 12.8M and with it off at
+  27.9M (2.2x); W3 +62%, W5 100k +54%, W5 1M +6%.
+  `setPrefetchThreshold(n)` re-enables it; the golden suite forces it on.
+- **`CommandBatch`**: a struct-of-arrays batch (`applyBatch(CommandBatch, …)`)
+  with a byte opcode instead of `Command` objects and `instanceof` dispatch.
+  Same events (golden suite checks it against `apply` for every vector);
+  +3-7% over the `Command[]` path. The bench uses it unless `-Dbatch=obj`.
+- ParallelGC over the default G1: +17% on W4 (12.9M → 15.1M, before the
+  two changes above; cause not investigated). `-XX:-TieredCompilation`, raised inline limits and
+  `LoopUnrollLimit=0` were all neutral or worse.
+- Java reaches about 72-74% of native single-core on W4 and W5 1k. The
+  rest is bounds checks and no prefetch; no single hot spot was found.
+- Correctness: golden suite (including `applyBatch` and `CommandBatch` vs
+  `apply`), snapshot and ladder tests pass; `diffuzz.sh` is 5-way identical
+  on seeds 1-8.
