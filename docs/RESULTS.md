@@ -596,9 +596,8 @@ W5 1M live
 | Go | 233 | 250 | 375 | 583 | 750 | 20,250 |
 | TypeScript | 325 | 292 | 542 | 792 | 1,166 | 58,250 |
 
-- On a small book the native ports process a command in under ~10 ns on average
-  on a small book, with p99 of 2 timer
-  ticks (83 ns) and p99.9 under 1 us. Deep books are memory-bound: at 1M live
+- On a small book the native ports process a command in under ~10 ns on average,
+  with p99 of 2 timer ticks (83 ns) and p99.9 under 1 us. Deep books are memory-bound: at 1M live
   orders the median is a DRAM round trip (~200 ns) for every port.
 - The C++ p99.9 of 708 ns on W5 1k (Rust 167) did not repeat across runs; treat
   single-digit-tick differences in the tail as noise.
