@@ -340,7 +340,7 @@ orders). Rust numbers; C++ is within 3%.
 | Aeron Cluster Premium (AWS) | 2M+ msgs/s at P99 130 us | same | AWS | not comparable |
 | Aeron IPC, .NET port ([sample](https://github.com/malat/Aeron.NET)) | ~14M msgs/s | 32-byte IPC messages, **not matching** | unstated | not comparable |
 | Flash One preprint ([arXiv 2606.01183](https://arxiv.org/html/2606.01183v1)) | 32M msgs/s per core (30.4M normal regime) | single-symbol matching, every command counted | Graviton4 core | 40.5M W4 (1.3x), 94M W5 1k (2.9x) |
-| FlashOne, the preprint authors' proprietary engine, as listed in their [harness README](https://github.com/flash1-dev/matching-engine-benchmark) | 103.39M msgs/s worst-case of 5 scenarios, seed 23 (README; the paper text I read says ~32M, not reconciled) | their harness: ABI calls + 64-byte report stream over an SPSC queue to a drainer core | Graviton4 / Neoverse-V2 | not comparable until our ports run in their harness |
+| FlashOne, the preprint authors' proprietary engine, as listed in their [harness README](https://github.com/flash1-dev/matching-engine-benchmark) | 103.39M msgs/s worst-case of 5 scenarios, seed 23 (README; the paper text I read says ~32M, not reconciled) | their harness: ABI calls + 64-byte report stream over an SPSC queue to a drainer core | Graviton4 / Neoverse-V2 | see "Third-party harness" below: we reach 12.25M (default transport) to 20.2M (batched transport) worst case on this machine |
 | best public engine in that harness (lcv3, C++) | 9.25M msgs/s | same harness | Graviton4 | same |
 | same preprint, 10,000 symbols on one core | 9.9M msgs/s | multiplexed books, cache-bound | Graviton4 core | not comparable (we are single-book) |
 | same preprint, 96-core instance | 643.6M msgs/s | 10,000 symbols, one thread each | 96 Graviton4 cores | 109.8M on 8 M1 shards (not comparable) |
@@ -381,4 +381,68 @@ What this does and does not show:
   result over an inter-thread queue. Running our ports through that harness on
   one machine is the only comparison that would be a fair "faster than" claim.
   It requires Linux (GCC 14+, Boost) and a C-ABI adapter that maps our events
-  onto their six report types; neither exists yet.
+  onto their six report types. We built the adapters and ran it: see
+  "Third-party harness" below. Result in one line: level with the best public
+  engine on a shared transport, 1.7x ahead with a batched one, and about a fifth
+  of the vendor's own 103M.
+
+## Third-party harness (flash1-dev/matching-engine-benchmark) @ 2026-10-28
+
+The harness from the Flash One preprint
+([repo](https://github.com/flash1-dev/matching-engine-benchmark), MIT) run on
+this machine with our C-ABI adapters (`tools/meb-adapters/`). It replays ~2.0M
+new/cancel/modify messages (power-law depth, 95% cancel, 20% modify, 15% IOC),
+requires a **byte-identical report stream** (SHA-256 against a consensus first
+established from Liquibook, QuantCup and Exchange-core), audits book state at
+random points, and **includes in the timed window**: the ABI call per message,
+a 64-byte report per result pushed through an inter-thread queue, and a
+drainer thread that records every report. Apple M1 in a 4-CPU Docker (arm64
+Linux, GCC 14.2) VM, so absolute numbers are not comparable with the
+Graviton4 numbers in their README; only engines run side by side here are.
+Median of 10 runs, M msgs/s, every cell VALID (hash PASS, audit PASS).
+
+| scenario | lcv3 (best public engine) | matcher-cpp, default transport | matcher-cpp, batched transport | matcher-rust, default transport |
+|---|---:|---:|---:|---:|
+| static | 13.88 | 13.30 | 23.29 | 11.68 |
+| normal | 11.80 | 12.60 | 21.96 | 10.81 |
+| swing-25 | 12.04 | 12.25 | 21.29 | 10.79 |
+| swing-40 | 12.12 | 12.47 | 20.85 | 10.68 |
+| flash-crash | 12.16 | 12.38 | 20.23 | 10.60 |
+| **worst case** | **11.80** | **12.25** | **20.23** | **10.60** |
+
+Their other two baselines, same machine (separate session): Liquibook 6.0 on
+`normal` and 0.035 on `static`; QuantCup 5.3 on `normal`, 0.16-0.51 on the three
+volatile scenarios, and INVALID on `static` and `normal` (its depth query
+trips the anti-cheat limit on time spent in `engine_query_*`).
+
+What this shows:
+
+- **On the same machine and the same transport, matcher-cpp is level with the
+  best public engine (+4% worst case), not far ahead of it, and matcher-rust is
+  about 10% behind it.** Both are conformant (hash and audit pass on all five
+  scenarios) and 2-80x ahead of Liquibook and QuantCup. The 94M figure above
+  does not carry over: this harness is dominated by report emission.
+- **Where the time goes** (matcher-cpp, `normal`): with every report discarded
+  (a measurement-only build; its hash fails by construction) the adapter runs
+  40.7M msgs/s, i.e. the matcher plus ABI call is ~25 ns/msg, in line with our
+  40M on W4. The default transport (one atomic publish per report) brings that to
+  12M; a batched ring that publishes every 32 reports (allowed by the
+  harness: `engine_get_transport`, `flush()`) to 22M. The rest is writing 64
+  bytes per report, the 1M-report queue the harness requests, and the
+  drainer thread.
+- **The batched transport is a different design point, not a free win.**
+  Reports reach the consumer up to 31 reports late. The harness measures
+  throughput only and explicitly allows it, but a venue that needs per-message
+  publication would not run it. Compare the default-transport column with other
+  engines' default-transport numbers, and the batched column only with engines
+  that also ship a transport.
+- **The vendor's claim stands unreproduced.** FlashOne is listed at 103.39M
+  msgs/s in the same harness (Graviton4/EPYC, a proprietary engine, with
+  whatever transport it ships). We are at 20M in the best configuration here,
+  about a fifth of that. Whether the gap is the matcher, the transport or the
+  hardware is not something this data can say; the discard build shows our
+  matcher side alone is about 40M on this workload.
+- Not done: a cache-resident (4096-slot) ring measured 25.7M but violates the
+  harness's "room for at least `capacity`" contract, so it is not reported as a
+  result and is not in the saved adapter. The Rust adapter has no custom
+  transport and was not profiled; its 10.6M vs C++'s 12.25M is unexplained.
