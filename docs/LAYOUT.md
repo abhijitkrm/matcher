@@ -112,7 +112,8 @@ Go) may implement the pipeline with ordinary loads into a sink variable
 where that measurably helps, or skip it; report which. **Java skips it by
 default**: its plain loads stall retirement and halve W4 throughput
 (RESULTS.md, 2026-10-28). **Go** keeps the pipeline but starts it at 2^18 live orders: at
-~100k it lost 30% on W4 and only the 1M-order book gains.
+~100k it lost 30% on W4 and only the 1M-order book gains. **TS** does the same with a threshold of 2^19: at ~100k live orders the
+pipeline halved W4.
 
 ## 5. Build
 

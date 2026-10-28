@@ -277,3 +277,35 @@ Apple M1, best of 15 reps, ops/s. Throughput = `--mode throughput`; 8 shards
 - Correctness: golden vectors, `ApplyBatch` vs `Apply` on a 300k-order book
   (the test fails if the pipeline is not engaged), snapshot and ladder
   tests pass; `diffuzz.sh` is 5-way identical on seeds 1-8.
+
+## ts chunk layout + applyBatch + aggregate @ 2026-10-28
+
+matcher-ts (Unreleased: LAYOUT.md chunk store on typed arrays, tagged
+`OrderMap`, `applyBatch`) on the same machine and corpora. Node 22.20 (V8),
+Apple M1, best of 15 reps, ops/s. Throughput = `--mode throughput`; 8 shards
+= `--mode scale` (worker threads).
+
+| workload | ts, 1 core | ts, 8 shards | go, 1 core | java, 1 core | rust, 1 core |
+|---|---|---|---|---|---|
+| W1 build 1M | 15.7M | 29.3M | 28.7M | 27.5M | 37.7M |
+| W2 sweep | 12.9M | 34.1M | 22.9M | 24.0M | 27.9M |
+| W3 churn | 8.2M | 21.0M | 18.6M | 18.5M | 23.2M |
+| W4 mixed | 14.9M | 40.5M | 26.0M | 29.4M | 40.5M |
+| W5 1k live | 31.6M | 92.2M | 60.9M | 69.1M | 94.0M |
+| W5 100k live | 9.1M | 20.9M | 17.5M | 19.1M | 24.6M |
+| W5 1M live | 3.9M | 14.3M | 7.9M | 6.2M | 13.3M |
+
+- **Look-ahead threshold raised from 64k to 512k live orders in TS.** Same
+  finding as Java and Go: plain loads are not prefetches. `--lookahead off`
+  vs the old 64k default: W4 14.9M vs 7.8M (1.9x), W2 12.9M vs 7.6M, W3
+  +22%, W5 100k +30%. Only the 1M-order book gains from it (4.0M vs 3.8M),
+  so it now starts at 2^19. Tests force it on with `setPrefetchThreshold(0)`.
+- V8 flags (`--max-semi-space-size`, larger inline budgets) were neutral
+  or worse.
+- TS is at about a third of Rust single-core: 34% on a cache-resident
+  book (W5 1k, 31.6M vs 94.0M), 37% on W4 (14.9M vs 40.5M), 29% on the
+  1M-order book. Aggregate W4 is also 37% of Rust (40.5M vs 109.8M). The
+  gap was not profiled; it was not chased further.
+- Correctness: golden suite (including `applyBatch` vs `apply` with the
+  pipeline forced on), snapshot and ladder tests pass; `diffuzz.sh` is
+  5-way identical on seeds 1-8.
