@@ -240,3 +240,40 @@ reps (JIT-warm), ops/s. Throughput = `--mode throughput`; 8 shards =
 - Correctness: golden suite (including `applyBatch` and `CommandBatch` vs
   `apply`), snapshot and ladder tests pass; `diffuzz.sh` is 5-way identical
   on seeds 1-8.
+
+## go chunk layout + ApplyBatch + aggregate @ 2026-10-28
+
+matcher-go (Unreleased: LAYOUT.md chunk store, tagged `omap`, `ApplyBatch`,
+PGO profile for `matcherbench`) on the same machine and corpora. Go 1.27,
+Apple M1, best of 15 reps, ops/s. Throughput = `--mode throughput`; 8 shards
+= `--mode scale`.
+
+| workload | go, 1 core | go, 8 shards | java, 1 core | rust, 1 core |
+|---|---|---|---|---|
+| W1 build 1M | 28.7M | 49.4M | 27.5M | 37.7M |
+| W2 sweep | 22.9M | 77.1M | 24.0M | 27.9M |
+| W3 churn | 18.6M | 39.8M | 18.5M | 23.2M |
+| W4 mixed | 26.0M | 61.1M | 29.4M | 40.5M |
+| W5 1k live | 60.9M | 222.7M | 69.1M | 94.0M |
+| W5 100k live | 17.5M | 41.1M | 19.1M | 24.6M |
+| W5 1M live | 7.9M | 26.1M | 6.2M | 13.3M |
+
+- **Look-ahead threshold raised from 64k to 256k live orders in Go.** Go has
+  no prefetch intrinsic either, so the pipeline's plain loads cost on books
+  that still mostly hit L2. A/B on W4 (about 100k live): 19.0M with the
+  pipeline, 26.7M without. On the 1M-order book it wins: 7.9M vs 6.1M.
+  Thresholds 2^17-2^19 all keep both results; 2^18 is used. The pipeline is
+  on only for the dMap + dChunk stages. `-tags matcher_noprefetch` turns it
+  off for comparison. (This lifted W2 as well, 18.9M → 22.9M.)
+- **PGO**: `cmd/matcherbench/default.pgo` is worth about +7% (W5 1k 56.7M →
+  60.8M). It lets the compiler inline the `priceIndex` wrappers and ladder
+  calls at hot sites; without PGO they exceed the inliner's budget of 80
+  (cost 117-129). A profile regenerated from the new code was no better.
+- Bounds-check elimination (`-gcflags=-B`) and `GOGC=off` changed nothing,
+  so neither bounds checks nor the GC is the limit.
+- Go is at about 65% of Rust on a cache-resident book (W5 1k) and 59% on
+  the 1M-order book; the rest is codegen (register allocation, no
+  non-blocking prefetch). Not chased further.
+- Correctness: golden vectors, `ApplyBatch` vs `Apply` on a 300k-order book
+  (the test fails if the pipeline is not engaged), snapshot and ladder
+  tests pass; `diffuzz.sh` is 5-way identical on seeds 1-8.

@@ -111,7 +111,8 @@ save on a resident book). Languages with no prefetch intrinsic (Java, TS,
 Go) may implement the pipeline with ordinary loads into a sink variable
 where that measurably helps, or skip it; report which. **Java skips it by
 default**: its plain loads stall retirement and halve W4 throughput
-(RESULTS.md, 2026-10-28).
+(RESULTS.md, 2026-10-28). **Go** keeps the pipeline but starts it at 2^18 live orders: at
+~100k it lost 30% on W4 and only the 1M-order book gains.
 
 ## 5. Build
 
