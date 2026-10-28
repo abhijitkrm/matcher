@@ -340,6 +340,8 @@ orders). Rust numbers; C++ is within 3%.
 | Aeron Cluster Premium (AWS) | 2M+ msgs/s at P99 130 us | same | AWS | not comparable |
 | Aeron IPC, .NET port ([sample](https://github.com/malat/Aeron.NET)) | ~14M msgs/s | 32-byte IPC messages, **not matching** | unstated | not comparable |
 | Flash One preprint ([arXiv 2606.01183](https://arxiv.org/html/2606.01183v1)) | 32M msgs/s per core (30.4M normal regime) | single-symbol matching, every command counted | Graviton4 core | 40.5M W4 (1.3x), 94M W5 1k (2.9x) |
+| FlashOne, the preprint authors' proprietary engine, as listed in their [harness README](https://github.com/flash1-dev/matching-engine-benchmark) | 103.39M msgs/s worst-case of 5 scenarios, seed 23 (README; the paper text I read says ~32M, not reconciled) | their harness: ABI calls + 64-byte report stream over an SPSC queue to a drainer core | Graviton4 / Neoverse-V2 | not comparable until our ports run in their harness |
+| best public engine in that harness (lcv3, C++) | 9.25M msgs/s | same harness | Graviton4 | same |
 | same preprint, 10,000 symbols on one core | 9.9M msgs/s | multiplexed books, cache-bound | Graviton4 core | not comparable (we are single-book) |
 | same preprint, 96-core instance | 643.6M msgs/s | 10,000 symbols, one thread each | 96 Graviton4 cores | 109.8M on 8 M1 shards (not comparable) |
 | Liquibook, QuantCup winner (measured in the preprint) | 2.8M / 3.0M msgs/s | open-source matching engines | Graviton4 core | 40.5M W4 (15x / 14x) |
@@ -348,13 +350,18 @@ orders). Rust numbers; C++ is within 3%.
 
 What this does and does not show:
 
-- **Faster than every software matching figure we found, on a small
-  cache-resident book:** 94M W5 1k vs 32M for the preprint's engine (2.9x), 6M
-  for LMAX's processor and 5-6M for exchange-core. On the mixed workload with a
-  ~100k-order standing book the lead over the preprint is 1.3x, not an order of
-  magnitude. The preprint itself shows the same dependence on cache residency
-  (10,000 symbols per core: 31% of its single-symbol rate; a standing book
-  about -10%), so book size and symbol count matter more than the ratio.
+- **On a small cache-resident book our no-op-sink number (94M W5 1k) is
+  above every *published, reproducible* software figure we found** (LMAX 6M,
+  exchange-core 5-6M, the best public engine in the harness 9.25M) and above
+  the 32M in the paper text. It is **not** above the vendor's own claim:
+  FlashOne is listed at 103.39M msgs/s in the harness README. That engine is
+  proprietary, the figure is self-reported, and it is measured with report
+  emission included, which our no-op sink excludes, so the two are not yet
+  comparable. On the mixed workload with a ~100k-order standing book our lead
+  over the paper's 32M is 1.3x, not an order of magnitude. The preprint itself
+  shows the same dependence on cache residency (10,000 symbols per core: 31% of
+  its single-symbol rate; a standing book about -10%), so book size and symbol
+  count matter more than the ratio.
 - **The large ratios against LMAX and exchange-core are mostly hardware and
   era** (2010-2011 Xeon vs a 2020 M1) and, for LMAX, a business-logic
   processor that did more than match. They are not evidence that our algorithm
@@ -365,6 +372,13 @@ What this does and does not show:
   bounded by it (Aeron Cluster: hundreds of thousands to low millions of
   messages/s per replicated stream).
 - **Not shown:** latency under load, behavior with persistence or replication
-  switched on, or any head-to-head run. The preprint publishes a benchmark
-  harness and reference hashes; running our ports through it on one machine
-  is the only comparison that would be a fair "faster than" claim.
+  switched on, or any head-to-head run. The preprint's authors publish a
+  benchmark harness and reference hashes
+  ([flash1-dev/matching-engine-benchmark](https://github.com/flash1-dev/matching-engine-benchmark),
+  MIT). Their unit, a "message", is an inbound new/cancel/modify command (about
+  2 per new order), the same unit as our ops/s, but their mix is cancel-heavy and
+  our W4 is 82% replace, and their timed region includes a 64-byte report per
+  result over an inter-thread queue. Running our ports through that harness on
+  one machine is the only comparison that would be a fair "faster than" claim.
+  It requires Linux (GCC 14+, Boost) and a C-ABI adapter that maps our events
+  onto their six report types; neither exists yet.
