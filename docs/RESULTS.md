@@ -383,8 +383,8 @@ What this does and does not show:
   It requires Linux (GCC 14+, Boost) and a C-ABI adapter that maps our events
   onto their six report types. We built the adapters and ran it: see
   "Third-party harness" below. Result in one line: level with the best public
-  engine on a shared transport, 1.7x ahead with a batched one, and about a fifth
-  of the vendor's own 103M.
+  engine (+2% on the default transport, +7% on a shared batched one, worst case)
+  and about a fifth of the vendor's own 103M.
 
 ## Third-party harness (flash1-dev/matching-engine-benchmark) @ 2026-10-28
 
@@ -401,14 +401,20 @@ Linux, GCC 14.2) VM, so absolute numbers are not comparable with the
 Graviton4 numbers in their README; only engines run side by side here are.
 Median of 10 runs, M msgs/s, every cell VALID (hash PASS, audit PASS).
 
-| scenario | lcv3 (best public engine) | matcher-cpp, default transport | matcher-cpp, batched transport | matcher-rust, default transport |
-|---|---:|---:|---:|---:|
-| static | 13.88 | 13.30 | 23.29 | 11.68 |
-| normal | 11.80 | 12.60 | 21.96 | 10.81 |
-| swing-25 | 12.04 | 12.25 | 21.29 | 10.79 |
-| swing-40 | 12.12 | 12.47 | 20.85 | 10.68 |
-| flash-crash | 12.16 | 12.38 | 20.23 | 10.60 |
-| **worst case** | **11.80** | **12.25** | **20.23** | **10.60** |
+Each engine is run twice: on the **harness's default transport** (one atomic
+publish per report) and on a **batched ring** that publishes every 32 reports
+(`engine_get_transport` + `flush()`, allowed by the harness). The same ring
+(`ring_transport.hpp`) is used for all three engines, including lcv3 via a
+shim, so the columns compare engines, not transports.
+
+| scenario | lcv3 | matcher-cpp | matcher-rust | lcv3, ring | matcher-cpp, ring | matcher-rust, ring |
+|---|---:|---:|---:|---:|---:|---:|
+| static | 13.53 | 13.22 | 11.81 | 24.14 | 23.47 | 21.64 |
+| normal | 12.00 | 12.84 | 11.00 | 19.43 | 22.22 | 19.83 |
+| swing-25 | 11.99 | 12.57 | 10.61 | 19.33 | 21.38 | 18.98 |
+| swing-40 | 12.11 | 12.18 | 10.62 | 19.69 | 21.24 | 18.51 |
+| flash-crash | 12.17 | 12.28 | 10.72 | 20.38 | 20.62 | 17.76 |
+| **worst case** | **11.99** | **12.18** | **10.61** | **19.33** | **20.62** | **17.76** |
 
 Their other two baselines, same machine (separate session): Liquibook 6.0 on
 `normal` and 0.035 on `static`; QuantCup 5.3 on `normal`, 0.16-0.51 on the three
@@ -417,35 +423,37 @@ trips the anti-cheat limit on time spent in `engine_query_*`).
 
 What this shows:
 
-- **On the same machine and the same transport, matcher-cpp is level with the
-  best public engine (+4% worst case), not far ahead of it, and matcher-rust is
-  about 10% behind it.** Both are conformant (hash and audit pass on all five
-  scenarios) and 2-80x ahead of Liquibook and QuantCup. The 94M figure above
-  does not carry over: this harness is dominated by report emission.
-- **Where the time goes** (matcher-cpp, `normal`): with every report discarded
-  (a measurement-only build; its hash fails by construction) the adapter runs
-  40.7M msgs/s, i.e. the matcher plus ABI call is ~25 ns/msg, in line with our
-  40M on W4. The default transport (one atomic publish per report) brings that to
-  12M; a batched ring that publishes every 32 reports (allowed by the
-  harness: `engine_get_transport`, `flush()`) to 22M. The rest is writing 64
-  bytes per report, the 1M-report queue the harness requests, and the
-  drainer thread.
+- **matcher-cpp is level with the best public engine, not far ahead of it:**
+  worst case +1.6% on the default transport (12.18 vs 11.99) and +6.7% on the
+  shared ring (20.62 vs 19.33). lcv3 wins `static` in both modes; matcher-cpp
+  wins the other four by 0-14%. matcher-rust is 8-11% behind lcv3 on worst case
+  (cause not investigated). All three are conformant and 2-80x ahead of
+  Liquibook and QuantCup. The 94M no-op-sink figure above does not carry over:
+  this harness is dominated by report emission.
+- **The transport matters more than the engine.** Moving every engine from the
+  default transport to the batched ring adds 60-70% (lcv3 11.99 -> 19.33,
+  matcher-cpp 12.18 -> 20.62, matcher-rust 10.61 -> 17.76). With every report
+  discarded (a measurement-only build; its hash fails by construction)
+  matcher-cpp runs at 40.7M msgs/s on `normal`, i.e. the matcher plus ABI call
+  is ~25 ns/msg, in line with our 40M on W4. The rest is writing 64 bytes per
+  report, the 1M-report queue the harness requests, and the drainer thread.
 - **The batched transport is a different design point, not a free win.**
   Reports reach the consumer up to 31 reports late. The harness measures
   throughput only and explicitly allows it, but a venue that needs per-message
-  publication would not run it. Compare the default-transport column with other
-  engines' default-transport numbers, and the batched column only with engines
-  that also ship a transport.
+  publication would not run it. Compare engines within a column.
 - **The vendor's claim stands unreproduced.** FlashOne is listed at 103.39M
   msgs/s in the same harness (Graviton4/EPYC, a proprietary engine, with
-  whatever transport it ships). We are at 20M in the best configuration here,
-  about a fifth of that. Whether the gap is the matcher, the transport or the
-  hardware is not something this data can say; the discard build shows our
-  matcher side alone is about 40M on this workload.
-- Not done: a cache-resident (4096-slot) ring measured 25.7M but violates the
-  harness's "room for at least `capacity`" contract, so it is not reported as a
-  result and is not in the saved adapter. The Rust adapter has no custom
-  transport and was not profiled; its 10.6M vs C++'s 12.25M is unexplained.
+  whatever transport it ships). Our best here is 20.6M, about a fifth of that.
+  Whether the gap is the matcher, the transport or the hardware cannot be told
+  from this data; the discard build shows our matcher side alone is ~40M on
+  this workload.
+- Not done / caveats: a cache-resident (4096-slot) ring measured 25.7M but
+  violates the harness's "room for at least `capacity`" contract, so it is not
+  reported as a result and is not in the saved adapter. The lcv3 shim reaches
+  the ring through the harness's function-pointer vtable, while the matcher-cpp
+  adapter calls the ring inline, which slightly favors matcher-cpp in the ring
+  column. Go, Java and TypeScript were not run (cgo/JNI/no practical C-ABI
+  path, and the batch entry point was not implemented).
 
 ## Single-core experiments that did not pay off @ 2026-10-28
 

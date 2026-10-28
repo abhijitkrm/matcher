@@ -51,11 +51,117 @@ pub struct Report {
 
 #[repr(C)]
 pub struct Transport {
-    create: Option<unsafe extern "C" fn()>,
+    create: unsafe extern "C" fn(u32) -> *mut c_void,
     push: unsafe extern "C" fn(*mut c_void, *const Report) -> i32,
-    drain: Option<unsafe extern "C" fn()>,
-    flush: Option<unsafe extern "C" fn()>,
-    destroy: Option<unsafe extern "C" fn()>,
+    drain: unsafe extern "C" fn(*mut c_void, *mut Report, u32) -> u32,
+    flush: unsafe extern "C" fn(*mut c_void),
+    destroy: unsafe extern "C" fn(*mut c_void),
+}
+
+#[cfg(feature = "ring")]
+mod ring {
+    //! Batched single-producer/single-consumer ring (engine-supplied transport).
+    //! The producer publishes its tail every BATCH reports and in flush(), so
+    //! matcher and drainer exchange a cache line once per batch, not per report.
+    use super::{Report, Transport};
+    use std::alloc::{alloc_zeroed, dealloc, Layout};
+    use std::os::raw::c_void;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    pub const BATCH: u64 = 32;
+
+    #[repr(align(128))]
+    struct Pad<T>(T);
+
+    pub struct Ring {
+        tail_pub: Pad<AtomicU64>,
+        head_pub: Pad<AtomicU64>,
+        prod: Pad<(u64, u64)>, // tail, head_cache
+        cons: Pad<(u64, u64)>, // head, tail_cache
+        mask: u64,
+        slots: *mut Report,
+        layout: Layout,
+    }
+
+    pub unsafe extern "C" fn create(capacity: u32) -> *mut c_void {
+        let mut cap = 1024u64;
+        while cap < capacity as u64 {
+            cap <<= 1;
+        }
+        let layout = Layout::from_size_align(cap as usize * 64, 128).unwrap();
+        let slots = alloc_zeroed(layout) as *mut Report;
+        Box::into_raw(Box::new(Ring {
+            tail_pub: Pad(AtomicU64::new(0)),
+            head_pub: Pad(AtomicU64::new(0)),
+            prod: Pad((0, 0)),
+            cons: Pad((0, 0)),
+            mask: cap - 1,
+            slots,
+            layout,
+        })) as *mut c_void
+    }
+
+    #[inline(always)]
+    pub unsafe fn push_ring(h: *mut c_void, rep: &Report) -> bool {
+        let r = &mut *(h as *mut Ring);
+        let (mut tail, mut head_cache) = r.prod.0;
+        if tail - head_cache > r.mask {
+            r.tail_pub.0.store(tail, Ordering::Release);
+            head_cache = r.head_pub.0.load(Ordering::Acquire);
+            r.prod.0 .1 = head_cache;
+            if tail - head_cache > r.mask {
+                return false;
+            }
+        }
+        *r.slots.add((tail & r.mask) as usize) = *rep;
+        tail += 1;
+        r.prod.0 .0 = tail;
+        if tail & (BATCH - 1) == 0 {
+            r.tail_pub.0.store(tail, Ordering::Release);
+        }
+        true
+    }
+
+    pub unsafe extern "C" fn push(h: *mut c_void, rep: *const Report) -> i32 {
+        push_ring(h, &*rep) as i32
+    }
+
+    pub unsafe extern "C" fn drain(h: *mut c_void, out: *mut Report, max: u32) -> u32 {
+        let r = &mut *(h as *mut Ring);
+        let (head, mut tail_cache) = r.cons.0;
+        if tail_cache == head {
+            tail_cache = r.tail_pub.0.load(Ordering::Acquire);
+            r.cons.0 .1 = tail_cache;
+            if tail_cache == head {
+                return 0;
+            }
+        }
+        let n = (tail_cache - head).min(max as u64);
+        for i in 0..n {
+            *out.add(i as usize) = *r.slots.add(((head + i) & r.mask) as usize);
+        }
+        r.cons.0 .0 = head + n;
+        r.head_pub.0.store(head + n, Ordering::Release);
+        n as u32
+    }
+
+    pub unsafe extern "C" fn flush(h: *mut c_void) {
+        let r = &mut *(h as *mut Ring);
+        r.tail_pub.0.store(r.prod.0 .0, Ordering::Release);
+    }
+
+    pub unsafe extern "C" fn destroy(h: *mut c_void) {
+        let r = Box::from_raw(h as *mut Ring);
+        dealloc(r.slots as *mut u8, r.layout);
+    }
+
+    pub static TRANSPORT: Transport = Transport { create, push, drain, flush, destroy };
+}
+
+#[cfg(feature = "ring")]
+#[no_mangle]
+pub extern "C" fn engine_get_transport() -> *const Transport {
+    &ring::TRANSPORT
 }
 
 const ORDER_ACK: u8 = 0;
@@ -89,6 +195,9 @@ impl Ctx {
     #[inline(always)]
     fn push(&self, r: &Report) {
         unsafe {
+            #[cfg(feature = "ring")]
+            while !ring::push_ring(self.sink, r) {}
+            #[cfg(not(feature = "ring"))]
             while ((*self.tr).push)(self.sink, r) == 0 {}
         }
     }
@@ -260,7 +369,10 @@ pub unsafe extern "C" fn engine_on_modify(m: *const Modify) {
 }
 
 #[no_mangle]
-pub extern "C" fn engine_flush() {}
+pub unsafe extern "C" fn engine_flush() {
+    #[cfg(feature = "ring")]
+    ring::flush(CTX.sink);
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn engine_query_best_bid() -> i64 {

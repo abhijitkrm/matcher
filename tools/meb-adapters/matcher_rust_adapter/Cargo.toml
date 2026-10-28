@@ -3,6 +3,10 @@ name = "matcher_rust_adapter"
 version = "0.1.0"
 edition = "2021"
 
+[features]
+# Engine-supplied batched SPSC report transport (publishes every 32 reports).
+ring = []
+
 [lib]
 crate-type = ["cdylib"]
 
