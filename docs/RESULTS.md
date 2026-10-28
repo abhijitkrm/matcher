@@ -597,7 +597,7 @@ W5 1M live
 | TypeScript | 325 | 292 | 542 | 792 | 1,166 | 58,250 |
 
 - On a small book the native ports process a command in under ~10 ns on average
-  (about 3 cache-hit loads and a few dozen instructions), with p99 of 2 timer
+  on a small book, with p99 of 2 timer
   ticks (83 ns) and p99.9 under 1 us. Deep books are memory-bound: at 1M live
   orders the median is a DRAM round trip (~200 ns) for every port.
 - The C++ p99.9 of 708 ns on W5 1k (Rust 167) did not repeat across runs; treat
@@ -627,6 +627,6 @@ Rust 115M and C++ 105M (after forced inlining), Java 69M, Go 61M, TypeScript 34M
   functions) and register-allocation quality.
 - **TypeScript (34M, needs 3x).** V8 flags gave +8% (inlining budget); a
   struct-of-arrays batch was slower. No lever found that is within 2x of the target.
-- A rough ceiling: managed ports have landed at 55-75% of the native result on
-  every workload. At that ratio the native 115M implies roughly 65-85M for Java
-  and Go and 35-45M for TypeScript, which is where they are.
+- Where they stand against Rust (single core): Java 60% and Go 53% on W5 1k,
+  roughly 65-75% on the mixed W4; TypeScript about 30% on both. Nothing here
+  predicts what restructuring the source would gain, so no target is claimed.
