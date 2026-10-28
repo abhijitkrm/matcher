@@ -545,8 +545,7 @@ is in the loop (first table). `max` is dominated by the machine (interrupts,
 scheduling) and, for Java and TypeScript, GC and JIT; it is reported but is not
 an engine property.
 
-Mean ns per command, from throughput mode (1e9 / ops-per-second; Go after the
-restructuring below, the timed-percentile tables are from before it):
+Mean ns per command, from throughput mode (1e9 / ops-per-second):
 
 | workload | Rust | C++ | Java | Go | TypeScript |
 |---|---:|---:|---:|---:|---:|
@@ -555,53 +554,56 @@ restructuring below, the timed-percentile tables are from before it):
 | W5 100k live | 36.8 | 40.0 | 52.4 | 48.5 | 110 |
 | W5 1M live | 70.4 | 71.9 | 161 | 115 | 256 |
 
-Timed percentiles, ns (mean in this mode includes timer overhead):
+Timed percentiles, ns (mean in this mode includes timer overhead; all five
+ports re-measured on the current builds, after the Rust/C++ inlining and the Go
+restructuring):
 
 W5 1k live
 
 | | mean | p50 | p90 | p99 | p99.9 | max |
 |---|---:|---:|---:|---:|---:|---:|
-| Rust | 21 | 0 | 42 | 83 | 167 | 5,875 |
-| C++ | 20 | 0 | 42 | 83 | 708 | 4,833 |
-| Java | 48 | 0 | 42 | 166 | 583 | 30,208 |
-| Go | 28 | 41 | 42 | 125 | 209 | 12,375 |
-| TypeScript | 56 | 42 | 125 | 334 | 875 | 44,833 |
+| Rust | 21 | 0 | 42 | 83 | 167 | 3,792 |
+| C++ | 19 | 0 | 42 | 83 | 167 | 3,584 |
+| Java | 47 | 0 | 42 | 166 | 625 | 30,459 |
+| Go | 26 | 41 | 42 | 125 | 209 | 10,709 |
+| TypeScript | 56 | 42 | 125 | 334 | 792 | 33,083 |
 
 W4 mixed
 
 | | mean | p50 | p90 | p99 | p99.9 | max |
 |---|---:|---:|---:|---:|---:|---:|
-| Rust | 38 | 41 | 84 | 209 | 417 | 26,250 |
-| C++ | 45 | 41 | 125 | 291 | 459 | 28,917 |
-| Java | 62 | 41 | 125 | 250 | 375 | 25,208 |
-| Go | 59 | 42 | 166 | 292 | 417 | 25,125 |
-| TypeScript | 91 | 42 | 250 | 500 | 875 | 53,542 |
+| Rust | 39 | 41 | 84 | 250 | 417 | 23,916 |
+| C++ | 40 | 41 | 125 | 250 | 500 | 14,917 |
+| Java | 62 | 41 | 125 | 250 | 375 | 28,750 |
+| Go | 57 | 42 | 166 | 292 | 417 | 27,834 |
+| TypeScript | 90 | 42 | 250 | 459 | 959 | 51,958 |
 
 W5 100k live
 
 | | mean | p50 | p90 | p99 | p99.9 | max |
 |---|---:|---:|---:|---:|---:|---:|
-| Rust | 45 | 42 | 84 | 208 | 292 | 4,959 |
-| C++ | 56 | 42 | 125 | 250 | 375 | 16,125 |
-| Java | 103 | 42 | 167 | 375 | 1,250 | 41,375 |
-| Go | 76 | 42 | 167 | 292 | 417 | 14,292 |
-| TypeScript | 179 | 84 | 416 | 666 | 958 | 47,500 |
+| Rust | 44 | 42 | 84 | 208 | 292 | 5,166 |
+| C++ | 63 | 42 | 166 | 250 | 417 | 5,875 |
+| Java | 107 | 42 | 208 | 375 | 1,292 | 47,625 |
+| Go | 66 | 42 | 166 | 250 | 375 | 7,500 |
+| TypeScript | 184 | 125 | 417 | 708 | 1,042 | 94,041 |
 
 W5 1M live
 
 | | mean | p50 | p90 | p99 | p99.9 | max |
 |---|---:|---:|---:|---:|---:|---:|
-| Rust | 183 | 208 | 333 | 459 | 584 | 22,834 |
-| C++ | 189 | 208 | 334 | 500 | 666 | 18,958 |
-| Java | 224 | 208 | 375 | 542 | 791 | 24,291 |
-| Go | 233 | 250 | 375 | 583 | 750 | 20,250 |
-| TypeScript | 325 | 292 | 542 | 792 | 1,166 | 58,250 |
+| Rust | 186 | 208 | 333 | 459 | 1,000 | 8,916 |
+| C++ | 184 | 167 | 333 | 459 | 584 | 22,750 |
+| Java | 219 | 208 | 375 | 542 | 792 | 17,542 |
+| Go | 221 | 250 | 375 | 542 | 708 | 28,541 |
+| TypeScript | 318 | 292 | 541 | 750 | 1,083 | 62,083 |
 
 - On a small book the native ports process a command in under ~10 ns on average,
   with p99 of 2 timer ticks (83 ns) and p99.9 under 1 us. Deep books are memory-bound: at 1M live
   orders the median is a DRAM round trip (~200 ns) for every port.
-- The C++ p99.9 of 708 ns on W5 1k (Rust 167) did not repeat across runs; treat
-  single-digit-tick differences in the tail as noise.
+- An earlier C++ p99.9 of 708 ns on W5 1k (Rust 167) did not repeat; in the
+  re-measurement both are 167 ns. Treat single-digit-tick differences in the
+  tail as noise.
 - Not measured: latency under load (open-loop, coordinated-omission-free) as in
   the Flash One paper's tables, and any latency through a transport. In the
   third-party harness the matcher-to-publisher hand-off dominates (about
