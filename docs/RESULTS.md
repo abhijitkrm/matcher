@@ -274,6 +274,10 @@ Apple M1, best of 15 reps, ops/s. Throughput = `--mode throughput`; 8 shards
 - Go is at about 65% of Rust on a cache-resident book (W5 1k) and 59% on
   the 1M-order book; the rest is codegen (register allocation, no
   non-blocking prefetch). Not chased further.
+- Compiler knobs tried and discarded (all within +-1% over three interleaved
+  rounds): `-d=pgoinlinecdfthreshold=100`, `-d=pgoinlinebudget=6000`,
+  `GOEXPERIMENT=newinliner` (alone and with `inlbudgetslack=200`),
+  `-d=alignhot=1`, `-gcflags=-l=4`.
 - Correctness: golden vectors, `ApplyBatch` vs `Apply` on a 300k-order book
   (the test fails if the pipeline is not engaged), snapshot and ladder
   tests pass; `diffuzz.sh` is 5-way identical on seeds 1-8.
@@ -300,8 +304,13 @@ Apple M1, best of 15 reps, ops/s. Throughput = `--mode throughput`; 8 shards
   vs the old 64k default: W4 14.9M vs 7.8M (1.9x), W2 12.9M vs 7.6M, W3
   +22%, W5 100k +30%. Only the 1M-order book gains from it (4.0M vs 3.8M),
   so it now starts at 2^19. Tests force it on with `setPrefetchThreshold(0)`.
-- V8 flags (`--max-semi-space-size`, larger inline budgets) were neutral
-  or worse.
+- V8 flags: `--max-semi-space-size` was neutral. Raising TurboFan's
+  cumulative inlining budget (`--max-inlined-bytecode-size-cumulative=2000`,
+  now set by `matcherbench`) gives W5 1k 31.5M -> 34.3M, W3 8.2M -> 9.3M,
+  W4 15.0M -> 15.7M (three interleaved rounds); raising the per-function
+  limit (`--max-inlined-bytecode-size=700`) was neutral or worse. A
+  struct-of-arrays `CommandBatch` was tried and was 13% slower on W1/W2
+  (V8 handles the object array better), so it was dropped.
 - TS is at about a third of Rust single-core: 34% on a cache-resident
   book (W5 1k, 31.6M vs 94.0M), 37% on W4 (14.9M vs 40.5M), 29% on the
   1M-order book. Aggregate W4 is also 37% of Rust (40.5M vs 109.8M). The
@@ -309,3 +318,53 @@ Apple M1, best of 15 reps, ops/s. Throughput = `--mode throughput`; 8 shards
 - Correctness: golden suite (including `applyBatch` vs `apply` with the
   pipeline forced on), snapshot and ladder tests pass; `diffuzz.sh` is
   5-way identical on seeds 1-8.
+
+## Comparison with published figures @ 2026-10-28
+
+Published throughput numbers for matching engines and the infrastructure
+around them, next to ours. **Read the "measures" column before the ratio:**
+most of these figures are not the same quantity as ours, on different
+hardware and years, and none was re-run by us on our machine or workloads.
+
+Ours is the matching core only: no network, no journal, no risk checks, no
+replication, a no-op event sink. Apple M1, W4 mixed (9% GTC, 3% IOC, 6% cancel,
+82% replace on ~100k standing orders) and W5 1k (same mix on 1,000 standing
+orders). Rust numbers; C++ is within 3%.
+
+| System (source) | Figure | What it measures | Hardware | Ours, same unit |
+|---|---|---|---|---|
+| LMAX Business Logic Processor ([Fowler](https://www.martinfowler.com/articles/lmax.html)) | 6M orders/s | one-thread matching + business logic, 2011 | 3 GHz Nehalem | 40.5M W4 (6.8x), 94M W5 1k |
+| LMAX Disruptor ([paper](https://www.scribd.com/document/365652228/Disruptor-1-0-pdf)) | >25M msgs/s, <50 ns | inter-thread ring-buffer transport, **not matching** | "moderate clock" CPUs, 2011 | not comparable |
+| exchange-core, Java + Disruptor ([README](https://github.com/Ahrvo-Trading-Systems/exchange-core)) | 5M ops/s per book | one order book, 3M-message mix | Xeon X5690 (2010) | 40.5M W4 (8.1x) |
+| Aeron Cluster, open source ([AWS](https://aws.amazon.com/blogs/industries/aeron-on-aws-2025-performance-benchmark-results)) | 250K msgs/s | replicated-log (consensus) rate, **not matching** | AWS | not comparable |
+| Aeron Cluster Premium (AWS) | 2M+ msgs/s at P99 130 us | same | AWS | not comparable |
+| Aeron IPC, .NET port ([sample](https://github.com/malat/Aeron.NET)) | ~14M msgs/s | 32-byte IPC messages, **not matching** | unstated | not comparable |
+| Flash One preprint ([arXiv 2606.01183](https://arxiv.org/html/2606.01183v1)) | 32M msgs/s per core (30.4M normal regime) | single-symbol matching, every command counted | Graviton4 core | 40.5M W4 (1.3x), 94M W5 1k (2.9x) |
+| same preprint, 10,000 symbols on one core | 9.9M msgs/s | multiplexed books, cache-bound | Graviton4 core | not comparable (we are single-book) |
+| same preprint, 96-core instance | 643.6M msgs/s | 10,000 symbols, one thread each | 96 Graviton4 cores | 109.8M on 8 M1 shards (not comparable) |
+| Liquibook, QuantCup winner (measured in the preprint) | 2.8M / 3.0M msgs/s | open-source matching engines | Graviton4 core | 40.5M W4 (15x / 14x) |
+| FPGA, UC Irvine student project ([page](https://projects.eng.uci.edu/projects/2025-2026/high-frequency-trading-project)) | 75M orders/s | self-reported, unaudited | FPGA | not comparable |
+| FPGA, Algo-Logic ([STAC 2013](https://stacresearch.com/system/files/resource/files/STAC%20Summit%20-%204%20November%202013%20-%20Algo-Logic.pdf)) | 150M searches/s | order-book lookups, not full matching | FPGA | not comparable |
+
+What this does and does not show:
+
+- **Faster than every software matching figure we found, on a small
+  cache-resident book:** 94M W5 1k vs 32M for the preprint's engine (2.9x), 6M
+  for LMAX's processor and 5-6M for exchange-core. On the mixed workload with a
+  ~100k-order standing book the lead over the preprint is 1.3x, not an order of
+  magnitude. The preprint itself shows the same dependence on cache residency
+  (10,000 symbols per core: 31% of its single-symbol rate; a standing book
+  about -10%), so book size and symbol count matter more than the ratio.
+- **The large ratios against LMAX and exchange-core are mostly hardware and
+  era** (2010-2011 Xeon vs a 2020 M1) and, for LMAX, a business-logic
+  processor that did more than match. They are not evidence that our algorithm
+  is 7x better.
+- **Disruptor and Aeron are not matching algorithms.** Their figures are
+  transport and consensus rates and have no matching-engine equivalent here.
+  A real deployment of our core would sit behind such a layer and would be
+  bounded by it (Aeron Cluster: hundreds of thousands to low millions of
+  messages/s per replicated stream).
+- **Not shown:** latency under load, behavior with persistence or replication
+  switched on, or any head-to-head run. The preprint publishes a benchmark
+  harness and reference hashes; running our ports through it on one machine
+  is the only comparison that would be a fair "faster than" claim.

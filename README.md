@@ -92,19 +92,25 @@ restores byte-identically in every other**.
 `<prefix>.run.cmd.jsonl` corpora — same seed, byte-identical workloads in
 every language. Protocol and reporting format: `spec/BENCH.md`.
 
-Peak throughput per implementation (single-threaded, per `spec/BENCH.md`):
+Throughput per implementation on Apple M1 (matching core only, no-op event
+sink; `--mode throughput` and `--mode scale` per `spec/BENCH.md` v2):
 
-| Implementation | Peak ops/s | Workload |
-|---|---:|---|
-| [matcher-cpp](https://github.com/abhijitkrm/matcher-cpp) | ~23M | w5 depth=1k |
-| [matcher-rust](https://github.com/abhijitkrm/matcher-rust) | ~19M | w5 depth=1k |
-| [matcher-java](https://github.com/abhijitkrm/matcher-java) | ~11M | w2 sweep |
-| [matcher-go](https://github.com/abhijitkrm/matcher-go) | ~9M | w5 depth=1k |
-| [matcher-ts](https://github.com/abhijitkrm/matcher-ts) | ~5M | w5 depth=1k |
+| Implementation | 1 core, w5 1k live | 1 core, w4 mixed | 8 shards, w4 mixed |
+|---|---:|---:|---:|
+| [matcher-rust](https://github.com/abhijitkrm/matcher-rust) | 94.0M | 40.5M | 109.8M |
+| [matcher-cpp](https://github.com/abhijitkrm/matcher-cpp) | 91.5M | 39.7M | 112.5M |
+| [matcher-java](https://github.com/abhijitkrm/matcher-java) | 69.1M | 29.4M | 57.5M |
+| [matcher-go](https://github.com/abhijitkrm/matcher-go) | 60.9M | 26.0M | 61.1M |
+| [matcher-ts](https://github.com/abhijitkrm/matcher-ts) | 34.3M | 15.7M | 40.5M* |
 
-Peak is the cache-resident ceiling; deep books are memory-latency-bound
-(~4M ops/s at depth=1M for the native impls). Full workload matrix, latency
-percentiles, and environment details: [`docs/RESULTS.md`](docs/RESULTS.md).
+\* 8-shard TS figure predates the V8 inlining-budget change.
+
+The 1k column is the cache-resident ceiling; throughput falls with book depth
+(Rust: 24.6M at 100k live orders, 13.3M at 1M). No port reaches 100M ops/s on
+one core; Rust and C++ pass it only as an 8-shard aggregate. How these compare
+with published engines (LMAX, Aeron, exchange-core, a recent preprint), and
+what that comparison does and does not show: [`docs/RESULTS.md`](docs/RESULTS.md).
+Full workload matrix, latency percentiles and environment details are there too.
 
 ## Contributing
 
